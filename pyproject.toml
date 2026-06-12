@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "boe-rag"
+version = "0.1.0"
+description = "Production-grade RAG assistant over the BOE (Spanish official state gazette) with an eval-driven pipeline."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Gonzalo López Crespo" }]
+keywords = ["rag", "nlp", "spanish", "legal", "retrieval", "huggingface"]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "ruff==0.15.17",
+    "mypy==2.1.0",
+    "pytest==9.0.3",
+    "pre-commit==4.6.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/boe_rag"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "C4",  # flake8-comprehensions
+    "PTH", # flake8-use-pathlib
+    "RUF", # ruff-specific
+    "D",   # pydocstyle
+]
+ignore = [
+    "D203", # incompatible with D211 (blank line before class docstring)
+    "D213", # incompatible with D212 (multi-line summary position)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D104"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+mypy_path = "src"
+files = ["src/boe_rag", "tests"]
+warn_unreachable = true
+pretty = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
