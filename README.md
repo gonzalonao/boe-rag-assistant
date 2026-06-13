@@ -28,18 +28,41 @@ daily-updated Spanish legal corpus and treats retrieval quality as an engineerin
 
 ## Architecture
 
-> Diagram coming with Phase 1 — see the roadmap below.
-
 ```
-BOE Open Data API → ingestion → structure-aware chunking → HF dataset
-                  → hybrid index (Qdrant: dense + BM25)
-query → hybrid retrieval → rerank (ONNX cross-encoder) → grounded generation → cited answer
+BOE Open Data API ─▶ ingestion ─▶ structure-aware chunking ─▶ HF dataset (corpus)
+   (sumario+XML)       │ client·parser·chunker                       │
+                       │                                             ▼
+                       └────────────▶ hybrid index (Qdrant: dense + BM25)
+query ─▶ hybrid retrieval ─▶ rerank (ONNX cross-encoder) ─▶ grounded generation ─▶ cited answer
+```
+
+### Ingestion pipeline (Phase 1)
+
+The ingestion layer (`src/boe_rag/ingest/`) turns the BOE Open Data API into a
+clean, retrieval-ready corpus:
+
+- **`client`** — resilient HTTP client: timeouts, polite rate limiting, and
+  retry-with-backoff on transient failures.
+- **`parser`** — flattens the daily *sumario* JSON into document references and
+  parses each document's XML into typed metadata and ordered body blocks.
+- **`chunker`** — *structure-aware*: walks the legal hierarchy
+  (título → capítulo → sección → artículo) and emits one chunk per article with
+  its full context, so every passage cites the exact article it came from.
+- **`corpus`** — serialises chunks to Parquet for the Hugging Face Hub.
+
+```bash
+# Build a corpus for a date range
+boe-ingest --start 2024-01-01 --end 2024-03-31 --out data/corpus/boe-2024-q1.parquet
+
+# Publish it to the Hub (needs the `hub` extra and `huggingface-cli login`)
+python scripts/push_corpus_to_hub.py \
+    --parquet data/corpus/boe-2024-q1.parquet --repo-id <user>/boe-corpus
 ```
 
 ## Project status / roadmap
 
 - [x] **Phase 0** — Scaffolding: tooling, CI, strict typing
-- [ ] **Phase 1** — BOE ingestion pipeline → corpus dataset on HF Hub
+- [x] **Phase 1** — BOE ingestion pipeline → corpus dataset on HF Hub
 - [ ] **Phase 2** — Eval harness + golden dataset + baseline RAG
 - [ ] **Phase 3** — Retrieval engineering (hybrid search, reranking, chunking ablations)
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub

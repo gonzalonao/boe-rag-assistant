@@ -11,7 +11,12 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Gonzalo López Crespo" }]
 keywords = ["rag", "nlp", "spanish", "legal", "retrieval", "huggingface"]
-dependencies = []
+dependencies = [
+    "httpx==0.28.1",
+    "pydantic==2.13.4",
+    "tenacity==9.1.4",
+    "pyarrow==24.0.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -20,6 +25,12 @@ dev = [
     "pytest==9.0.3",
     "pre-commit==4.6.0",
 ]
+hub = [
+    "huggingface-hub==1.19.0",
+]
+
+[project.scripts]
+boe-ingest = "boe_rag.ingest.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/boe_rag"]
