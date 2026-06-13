@@ -1,0 +1,74 @@
+{
+  "status": { "code": "200", "text": "ok" },
+  "data": {
+    "sumario": {
+      "metadatos": { "publicacion": "BOE", "fecha_publicacion": "20240115" },
+      "diario": [
+        {
+          "numero": "13",
+          "seccion": [
+            {
+              "codigo": "1",
+              "nombre": "I. Disposiciones generales",
+              "departamento": [
+                {
+                  "codigo": "9575",
+                  "nombre": "MINISTERIO PARA LA TRANSICIÓN ECOLÓGICA",
+                  "texto": {
+                    "epigrafe": [
+                      {
+                        "nombre": "Productos petrolíferos. Precios",
+                        "item": [
+                          {
+                            "identificador": "BOE-A-2024-714",
+                            "titulo": "Resolución de 11 de enero de 2024 sobre precios.",
+                            "url_xml": "https://www.boe.es/diario_boe/xml.php?id=BOE-A-2024-714",
+                            "url_html": "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2024-714"
+                          },
+                          {
+                            "identificador": "BOE-A-2024-715",
+                            "titulo": "Resolución de 12 de enero de 2024 sobre tarifas.",
+                            "url_xml": "https://www.boe.es/diario_boe/xml.php?id=BOE-A-2024-715",
+                            "url_html": "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2024-715"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                {
+                  "codigo": "1234",
+                  "nombre": "MINISTERIO DE HACIENDA",
+                  "texto": {
+                    "item": {
+                      "identificador": "BOE-A-2024-716",
+                      "titulo": "Orden de 10 de enero de 2024 de desarrollo reglamentario.",
+                      "url_xml": "https://www.boe.es/diario_boe/xml.php?id=BOE-A-2024-716",
+                      "url_html": "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2024-716"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "codigo": "2A",
+              "nombre": "II.A Autoridades y personal",
+              "departamento": {
+                "codigo": "1",
+                "nombre": "MINISTERIO DE JUSTICIA",
+                "texto": {
+                  "item": {
+                    "identificador": "BOE-A-2024-999",
+                    "titulo": "Nombramiento de personal.",
+                    "url_xml": "https://www.boe.es/diario_boe/xml.php?id=BOE-A-2024-999",
+                    "url_html": "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2024-999"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
