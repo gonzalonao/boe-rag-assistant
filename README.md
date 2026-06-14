@@ -80,6 +80,19 @@ each mapped to the chunk that answers it. Metrics (recall@k, precision@k, hit ra
 nDCG) are pure-Python and run in CI; the retrieval run uses an off-the-shelf embedding
 model and is reproducible locally.
 
+**Two tiers of questions.** The 20 hand-curated questions are the trusted *gold* set. To
+scale measurement, `scripts/generate_evalset.py` produces a larger *silver* set: it prompts
+an LLM to write a self-contained question + answer grounded in a sampled chunk, drops deictic
+or trivial questions, and keeps only answers the LLM-judge rates faithful to their source
+(`src/boe_rag/eval/generate.py`). Synthetic questions can flatter the system that generated
+them, so the two tiers are reported separately and the gold set stays the source of truth.
+
+```bash
+$env:GROQ_API_KEY = "..."   # Groq recommended; Gemini's free tier rate-limits hard
+python scripts/generate_evalset.py --corpus data/corpus/boe-2024.parquet \
+    --out eval_data/generated_evalset.jsonl --limit 150
+```
+
 **Baseline** — `intfloat/multilingual-e5-small`, dense-only retrieval, 2024 corpus
 (2,225 chunks, 20 questions), the "before" picture every later change is measured against:
 
