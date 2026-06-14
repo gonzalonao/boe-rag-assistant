@@ -7,7 +7,7 @@ from collections.abc import Sequence
 import httpx
 import pytest
 
-from boe_rag.llm.base import ChatMessage, LLMError
+from boe_rag.llm.base import ChatMessage, LLMError, LLMRateLimitError
 from boe_rag.llm.factory import FallbackProvider, build_available_providers
 from boe_rag.llm.gemini import GeminiProvider
 from boe_rag.llm.groq import GroqProvider
@@ -87,6 +87,22 @@ def test_provider_retries_then_succeeds() -> None:
     assert calls["n"] == 2
 
 
+def test_provider_raises_rate_limit_error_after_retries() -> None:
+    """A persistent 429 is retried then surfaced as LLMRateLimitError."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        # retry-after: 0 keeps the test fast while exercising the header path.
+        return httpx.Response(429, headers={"retry-after": "0"}, text="slow down")
+
+    provider = GroqProvider(api_key="k")
+    _mock(provider, handler)
+    with pytest.raises(LLMRateLimitError):
+        provider.complete([ChatMessage(role="user", content="q")])
+    assert calls["n"] == 4
+
+
 def test_provider_raises_on_client_error() -> None:
     """A 400 surfaces as an LLMError without retrying."""
 
@@ -145,6 +161,57 @@ def test_fallback_raises_when_all_fail() -> None:
     )
     with pytest.raises(LLMError, match="all providers failed"):
         chain.complete([ChatMessage(role="user", content="q")])
+
+
+class _CountingProvider:
+    """Provider that counts calls and optionally raises a fixed error."""
+
+    def __init__(self, name: str, *, error: Exception | None) -> None:
+        self._name = name
+        self._error = error
+        self.calls = 0
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def complete(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+    ) -> str:
+        self.calls += 1
+        if self._error is not None:
+            raise self._error
+        return "ok"
+
+
+def test_fallback_trips_breaker_on_rate_limit() -> None:
+    """A rate-limited provider is skipped on subsequent calls, not retried."""
+    limited = _CountingProvider("a", error=LLMRateLimitError("a 429"))
+    healthy = _CountingProvider("b", error=None)
+    chain = FallbackProvider([limited, healthy])
+    msg = [ChatMessage(role="user", content="q")]
+
+    assert chain.complete(msg) == "ok"
+    assert chain.complete(msg) == "ok"
+    assert limited.calls == 1  # tripped after the first 429
+    assert healthy.calls == 2
+
+
+def test_fallback_raises_clear_error_when_all_tripped() -> None:
+    """Once the only provider is tripped, the chain reports it is rate-limited."""
+    limited = _CountingProvider("a", error=LLMRateLimitError("429"))
+    chain = FallbackProvider([limited])
+    msg = [ChatMessage(role="user", content="q")]
+
+    with pytest.raises(LLMError):
+        chain.complete(msg)
+    with pytest.raises(LLMError, match="rate-limited"):
+        chain.complete(msg)
+    assert limited.calls == 1
 
 
 def test_build_available_providers_skips_missing_keys(

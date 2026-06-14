@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 
-from boe_rag.llm.base import ChatMessage, LLMError, LLMProvider
+from boe_rag.llm.base import ChatMessage, LLMError, LLMProvider, LLMRateLimitError
 from boe_rag.llm.gemini import GeminiProvider
 from boe_rag.llm.groq import GroqProvider
 
@@ -64,6 +64,11 @@ def build_available_providers(
 class FallbackProvider:
     """Tries each wrapped provider in order until one succeeds.
 
+    A rate-limited provider trips a per-instance circuit breaker: it is skipped
+    for the remainder of this object's lifetime (i.e. the rest of an eval run),
+    so a free-tier quota exhaustion on the primary doesn't cost a doomed retry
+    on every subsequent call.
+
     Args:
         providers: Providers in preference order (at least one).
 
@@ -76,6 +81,8 @@ class FallbackProvider:
         if not providers:
             raise LLMError("FallbackProvider needs at least one provider")
         self._providers = list(providers)
+        #: Names of providers tripped by a rate limit; skipped for the run.
+        self._tripped: set[str] = set()
 
     @property
     def name(self) -> str:
@@ -89,18 +96,29 @@ class FallbackProvider:
         temperature: float = 0.0,
         max_tokens: int = 1024,
     ) -> str:
-        """Try each provider in turn, returning the first success.
+        """Try each not-yet-tripped provider in turn, returning the first success.
 
         Raises:
-            LLMError: If every provider fails.
+            LLMError: If every available provider fails (or all are tripped).
         """
         errors: list[str] = []
         for provider in self._providers:
+            if provider.name in self._tripped:
+                continue
             try:
                 return provider.complete(
                     messages, temperature=temperature, max_tokens=max_tokens
                 )
+            except LLMRateLimitError as err:
+                logger.warning(
+                    "Provider %s rate-limited; skipping it for the rest of this run.",
+                    provider.name,
+                )
+                self._tripped.add(provider.name)
+                errors.append(f"{provider.name}: {err}")
             except LLMError as err:
                 logger.warning("Provider %s failed: %s", provider.name, err)
                 errors.append(f"{provider.name}: {err}")
+        if not errors:
+            raise LLMError("all providers are rate-limited; none left to try this run")
         raise LLMError("all providers failed -> " + " | ".join(errors))

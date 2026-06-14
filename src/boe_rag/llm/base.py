@@ -20,6 +20,14 @@ class LLMError(RuntimeError):
     """Raised when an LLM provider call fails or is misconfigured."""
 
 
+class LLMRateLimitError(LLMError):
+    """Raised when a provider is rate-limited (HTTP 429) after retries.
+
+    A distinct subclass so the fallback chain can tell "this provider is out of
+    quota for now" apart from a one-off failure and stop retrying it for the run.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class ChatMessage:
     """A single chat message.
