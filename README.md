@@ -66,7 +66,7 @@ python scripts/push_corpus_to_hub.py \
 - [x] **Phase 2** — Eval harness: retrieval metrics + golden set + baseline, plus a
   provider-agnostic LLM layer (Gemini/Groq) and an LLM-as-judge end-to-end baseline
   (faithfulness 0.990, correctness 0.895)
-- [ ] **Phase 3** — Retrieval engineering: ✅ hybrid BM25+dense (RRF); next: reranking, chunking ablations
+- [ ] **Phase 3** — Retrieval engineering: ✅ hybrid BM25+dense (RRF), ✅ cross-encoder reranking (recall 0.900→1.000); next: chunking ablations
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
 - [ ] **Phase 5** — Grounded generation with citation validation
 - [ ] **Phase 6** — FastAPI service + Gradio UI on a Hugging Face Space
@@ -117,6 +117,29 @@ Reproduce it:
 ```bash
 python scripts/run_retrieval_ablation.py --corpus data/corpus/boe-2024.parquet \
     --out reports/retrieval_hybrid
+```
+
+### Cross-encoder reranking (Phase 3)
+
+A bi-encoder scores query and passage independently; a **cross-encoder** reads them together
+and judges relevance directly — far sharper, but too slow for the whole corpus. So it runs as
+a second stage (`src/boe_rag/eval/rerank.py`): hybrid retrieves a 30-candidate pool, then
+`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` reorders it (~1.5 s/query on CPU).
+
+| Retriever | Recall@10 | Precision@10 | Hit rate@10 | MRR | nDCG@10 |
+|---|---|---|---|---|---|
+| dense (baseline) | 0.900 | 0.090 | 0.900 | 0.749 | 0.783 |
+| hybrid (RRF) | 0.900 | 0.090 | 0.900 | 0.763 | 0.793 |
+| **hybrid + cross-encoder** | **1.000** | **0.100** | **1.000** | **0.888** | **0.913** |
+
+Reranking breaks the recall ceiling: **0.900 → 1.000** (the two hard questions were in the
+candidate pool but ranked too low; the cross-encoder promotes them into the top 10), with
+**MRR +0.125 and nDCG +0.120** over hybrid. Full report:
+[`reports/retrieval_rerank.md`](reports/retrieval_rerank.md). Reproduce it:
+
+```bash
+python scripts/run_rerank_ablation.py --corpus data/corpus/boe-2024.parquet \
+    --out reports/retrieval_rerank
 ```
 
 ### End-to-end (answer quality)
