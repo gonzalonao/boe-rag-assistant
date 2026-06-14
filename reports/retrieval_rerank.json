@@ -1,0 +1,29 @@
+{
+  "dense": {
+    "k": 10,
+    "num_queries": 20,
+    "recall_at_k": 0.9,
+    "precision_at_k": 0.09,
+    "hit_rate_at_k": 0.9,
+    "mrr": 0.7491666666666666,
+    "ndcg_at_k": 0.7833247437591728
+  },
+  "hybrid (RRF)": {
+    "k": 10,
+    "num_queries": 20,
+    "recall_at_k": 0.9,
+    "precision_at_k": 0.09,
+    "hit_rate_at_k": 0.9,
+    "mrr": 0.7632936507936507,
+    "ndcg_at_k": 0.7931318153654415
+  },
+  "hybrid + cross-encoder": {
+    "k": 10,
+    "num_queries": 20,
+    "recall_at_k": 1.0,
+    "precision_at_k": 0.1,
+    "hit_rate_at_k": 1.0,
+    "mrr": 0.8876984126984127,
+    "ndcg_at_k": 0.9132646541284386
+  }
+}
