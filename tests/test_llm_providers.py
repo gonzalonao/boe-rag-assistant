@@ -201,17 +201,31 @@ def test_fallback_trips_breaker_on_rate_limit() -> None:
     assert healthy.calls == 2
 
 
-def test_fallback_raises_clear_error_when_all_tripped() -> None:
-    """Once the only provider is tripped, the chain reports it is rate-limited."""
+def test_fallback_raises_rate_limit_error_when_all_tripped() -> None:
+    """Once the only provider is cooling down, the chain reports rate-limited."""
     limited = _CountingProvider("a", error=LLMRateLimitError("429"))
     chain = FallbackProvider([limited])
     msg = [ChatMessage(role="user", content="q")]
 
-    with pytest.raises(LLMError):
+    with pytest.raises(LLMRateLimitError):
         chain.complete(msg)
-    with pytest.raises(LLMError, match="rate-limited"):
+    # Still within the cool-down window: the provider is skipped, not re-tried.
+    with pytest.raises(LLMRateLimitError, match="rate-limited"):
         chain.complete(msg)
     assert limited.calls == 1
+
+
+def test_fallback_retries_provider_after_cooldown() -> None:
+    """With a zero cool-down, a rate-limited provider is retried, not disabled."""
+    limited = _CountingProvider("a", error=LLMRateLimitError("429"))
+    chain = FallbackProvider([limited], cooldown=0.0)
+    msg = [ChatMessage(role="user", content="q")]
+
+    with pytest.raises(LLMRateLimitError):
+        chain.complete(msg)
+    with pytest.raises(LLMRateLimitError):
+        chain.complete(msg)
+    assert limited.calls == 2  # recovered after cool-down, tried again
 
 
 def test_build_available_providers_skips_missing_keys(
