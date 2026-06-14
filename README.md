@@ -63,12 +63,36 @@ python scripts/push_corpus_to_hub.py \
 
 - [x] **Phase 0** — Scaffolding: tooling, CI, strict typing
 - [x] **Phase 1** — BOE ingestion pipeline → corpus dataset on HF Hub
-- [ ] **Phase 2** — Eval harness + golden dataset + baseline RAG
+- [x] **Phase 2** — Eval harness: ranking metrics, golden eval set, baseline numbers
+  _(LLM-as-judge end-to-end metrics pending a free API key)_
 - [ ] **Phase 3** — Retrieval engineering (hybrid search, reranking, chunking ablations)
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
 - [ ] **Phase 5** — Grounded generation with citation validation
 - [ ] **Phase 6** — FastAPI service + Gradio UI on a Hugging Face Space
 - [ ] **Phase 7** — Scheduled incremental ingestion + observability
+
+## Evaluation (Phase 2)
+
+The harness (`src/boe_rag/eval/`) scores the retriever against a hand-curated golden
+set of real Spanish legal questions ([`eval_data/seed_evalset.jsonl`](eval_data/seed_evalset.jsonl)),
+each mapped to the chunk that answers it. Metrics (recall@k, precision@k, hit rate, MRR,
+nDCG) are pure-Python and run in CI; the retrieval run uses an off-the-shelf embedding
+model and is reproducible locally.
+
+**Baseline** — `intfloat/multilingual-e5-small`, dense-only retrieval, 2024 corpus
+(2,225 chunks, 20 questions), the "before" picture every later change is measured against:
+
+| Recall@10 | Hit rate@10 | MRR | nDCG@10 |
+|---|---|---|---|
+| 0.900 | 0.900 | 0.749 | 0.783 |
+
+Full report: [`reports/retrieval_baseline.md`](reports/retrieval_baseline.md). Reproduce it:
+
+```bash
+pip install -e ".[ml]"                 # embedding model (torch)
+python scripts/run_eval.py --corpus data/corpus/boe-2024.parquet \
+    --out reports/retrieval_baseline
+```
 
 ## Getting started
 
