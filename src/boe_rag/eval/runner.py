@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from boe_rag.eval.dataset import EvalExample
 from boe_rag.eval.metrics import RetrievalMetrics, evaluate_retrieval
-from boe_rag.eval.retriever import DenseRetriever, Embedder
+from boe_rag.eval.retriever import DenseRetriever, Embedder, Searcher
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +42,46 @@ def _first_relevant_rank(
     return None
 
 
+def evaluate_searcher(
+    searcher: Searcher,
+    examples: Sequence[EvalExample],
+    k: int = 10,
+    retrieve_n: int | None = None,
+) -> tuple[RetrievalMetrics, list[ExampleResult]]:
+    """Score an already-indexed retriever over the eval set.
+
+    Retriever-agnostic core of the eval loop: works with the dense, sparse, or
+    hybrid retriever (anything matching :class:`Searcher`).
+
+    Args:
+        searcher: An indexed retriever.
+        examples: Golden eval examples.
+        k: Cut-off rank for the reported @k metrics.
+        retrieve_n: How many candidates to retrieve per query; defaults to ``k``.
+            Set larger than ``k`` to also measure deeper recall.
+
+    Returns:
+        The aggregated metrics and the per-example results.
+    """
+    depth = retrieve_n or k
+    scored: list[tuple[Sequence[str], frozenset[str]]] = []
+    results: list[ExampleResult] = []
+    for example in examples:
+        retrieved = [cid for cid, _ in searcher.search(example.question, depth)]
+        relevant = frozenset(example.relevant_chunk_ids)
+        scored.append((retrieved, relevant))
+        results.append(
+            ExampleResult(
+                example_id=example.example_id,
+                retrieved_ids=tuple(retrieved),
+                relevant_ids=example.relevant_chunk_ids,
+                first_relevant_rank=_first_relevant_rank(retrieved, relevant),
+            )
+        )
+    metrics = evaluate_retrieval(scored, k=k)
+    return metrics, results
+
+
 def run_retrieval_eval(
     chunk_ids: Sequence[str],
     texts: Sequence[str],
@@ -50,7 +90,7 @@ def run_retrieval_eval(
     k: int = 10,
     retrieve_n: int | None = None,
 ) -> tuple[RetrievalMetrics, list[ExampleResult]]:
-    """Index the corpus and evaluate the retriever over the eval set.
+    """Index the corpus with the dense retriever and evaluate it.
 
     Args:
         chunk_ids: Corpus chunk ids, aligned with ``texts``.
@@ -64,23 +104,6 @@ def run_retrieval_eval(
     Returns:
         The aggregated metrics and the per-example results.
     """
-    depth = retrieve_n or k
     retriever = DenseRetriever(embedder)
     retriever.index(chunk_ids, texts)
-
-    scored: list[tuple[Sequence[str], frozenset[str]]] = []
-    results: list[ExampleResult] = []
-    for example in examples:
-        retrieved = [cid for cid, _ in retriever.search(example.question, depth)]
-        relevant = frozenset(example.relevant_chunk_ids)
-        scored.append((retrieved, relevant))
-        results.append(
-            ExampleResult(
-                example_id=example.example_id,
-                retrieved_ids=tuple(retrieved),
-                relevant_ids=example.relevant_chunk_ids,
-                first_relevant_rank=_first_relevant_rank(retrieved, relevant),
-            )
-        )
-    metrics = evaluate_retrieval(scored, k=k)
-    return metrics, results
+    return evaluate_searcher(retriever, examples, k=k, retrieve_n=retrieve_n)
