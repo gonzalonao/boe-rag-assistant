@@ -1,0 +1,29 @@
+{
+  "dense": {
+    "k": 10,
+    "num_queries": 20,
+    "recall_at_k": 0.9,
+    "precision_at_k": 0.09,
+    "hit_rate_at_k": 0.9,
+    "mrr": 0.7491666666666666,
+    "ndcg_at_k": 0.7833247437591728
+  },
+  "bm25": {
+    "k": 10,
+    "num_queries": 20,
+    "recall_at_k": 0.9,
+    "precision_at_k": 0.09,
+    "hit_rate_at_k": 0.9,
+    "mrr": 0.7322916666666667,
+    "ndcg_at_k": 0.7727197786179612
+  },
+  "hybrid (RRF)": {
+    "k": 10,
+    "num_queries": 20,
+    "recall_at_k": 0.9,
+    "precision_at_k": 0.09,
+    "hit_rate_at_k": 0.9,
+    "mrr": 0.7632936507936507,
+    "ndcg_at_k": 0.7931318153654415
+  }
+}

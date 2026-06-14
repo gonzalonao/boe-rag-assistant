@@ -21,6 +21,18 @@ import numpy.typing as npt
 FloatMatrix = npt.NDArray[np.float32]
 
 
+class Searcher(Protocol):
+    """Anything that ranks corpus chunks for a query.
+
+    The common interface shared by the dense, sparse, and hybrid retrievers so
+    the eval runner can score any of them interchangeably.
+    """
+
+    def search(self, query: str, k: int = 10) -> list[tuple[str, float]]:
+        """Return up to ``k`` ``(chunk_id, score)`` pairs, highest score first."""
+        ...
+
+
 class Embedder(Protocol):
     """Turns text into L2-normalised embedding vectors.
 

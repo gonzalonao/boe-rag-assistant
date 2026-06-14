@@ -66,7 +66,7 @@ python scripts/push_corpus_to_hub.py \
 - [x] **Phase 2** — Eval harness: retrieval metrics + golden set + baseline, plus a
   provider-agnostic LLM layer (Gemini/Groq) and an LLM-as-judge end-to-end eval
   _(run the e2e eval once a free API key is set)_
-- [ ] **Phase 3** — Retrieval engineering (hybrid search, reranking, chunking ablations)
+- [ ] **Phase 3** — Retrieval engineering: ✅ hybrid BM25+dense (RRF); next: reranking, chunking ablations
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
 - [ ] **Phase 5** — Grounded generation with citation validation
 - [ ] **Phase 6** — FastAPI service + Gradio UI on a Hugging Face Space
@@ -93,6 +93,30 @@ Full report: [`reports/retrieval_baseline.md`](reports/retrieval_baseline.md). R
 pip install -e ".[ml]"                 # embedding model (torch)
 python scripts/run_eval.py --corpus data/corpus/boe-2024.parquet \
     --out reports/retrieval_baseline
+```
+
+### Hybrid retrieval (Phase 3)
+
+Sparse and dense retrieval fail differently: BM25 nails exact legal references
+(`artículo 14`, `Ley 39/2015`) but misses paraphrases; the embedding model matches
+meaning but misses rare terms. A pure-Python BM25 index (`src/boe_rag/eval/sparse.py`)
+is fused with the dense retriever by **Reciprocal Rank Fusion** (`hybrid.py`). Same corpus
+and golden set as the baseline:
+
+| Retriever | Recall@10 | Precision@10 | Hit rate@10 | MRR | nDCG@10 |
+|---|---|---|---|---|---|
+| dense (baseline) | 0.900 | 0.090 | 0.900 | 0.749 | 0.783 |
+| BM25 | 0.900 | 0.090 | 0.900 | 0.732 | 0.773 |
+| **hybrid (RRF)** | **0.900** | **0.090** | **0.900** | **0.763** | **0.793** |
+
+Hybrid is best on both ranking metrics (**MRR +0.014, nDCG +0.010** vs dense); recall holds
+at the ceiling set by two hard questions both legs miss — a target for reranking and the
+chunking ablation. Full report: [`reports/retrieval_hybrid.md`](reports/retrieval_hybrid.md).
+Reproduce it:
+
+```bash
+python scripts/run_retrieval_ablation.py --corpus data/corpus/boe-2024.parquet \
+    --out reports/retrieval_hybrid
 ```
 
 ### End-to-end (answer quality)
