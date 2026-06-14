@@ -63,8 +63,9 @@ python scripts/push_corpus_to_hub.py \
 
 - [x] **Phase 0** — Scaffolding: tooling, CI, strict typing
 - [x] **Phase 1** — BOE ingestion pipeline → corpus dataset on HF Hub
-- [x] **Phase 2** — Eval harness: ranking metrics, golden eval set, baseline numbers
-  _(LLM-as-judge end-to-end metrics pending a free API key)_
+- [x] **Phase 2** — Eval harness: retrieval metrics + golden set + baseline, plus a
+  provider-agnostic LLM layer (Gemini/Groq) and an LLM-as-judge end-to-end eval
+  _(run the e2e eval once a free API key is set)_
 - [ ] **Phase 3** — Retrieval engineering (hybrid search, reranking, chunking ablations)
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
 - [ ] **Phase 5** — Grounded generation with citation validation
@@ -92,6 +93,19 @@ Full report: [`reports/retrieval_baseline.md`](reports/retrieval_baseline.md). R
 pip install -e ".[ml]"                 # embedding model (torch)
 python scripts/run_eval.py --corpus data/corpus/boe-2024.parquet \
     --out reports/retrieval_baseline
+```
+
+### End-to-end (answer quality)
+
+A provider-agnostic LLM layer (`src/boe_rag/llm/`, Gemini + Groq with a fallback chain)
+powers both a baseline grounded answerer (cite-or-refuse prompting) and an **LLM-as-judge**
+that scores each generated answer for **faithfulness** (grounded in the retrieved passages?)
+and **correctness** (matches the reference answer?). Run it once an API key is set:
+
+```bash
+$env:GEMINI_API_KEY = "..."   # and/or $env:GROQ_API_KEY = "..."
+python scripts/run_e2e_eval.py --corpus data/corpus/boe-2024.parquet \
+    --out reports/e2e_baseline
 ```
 
 ## Getting started
