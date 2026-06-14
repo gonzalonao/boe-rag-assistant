@@ -64,8 +64,8 @@ python scripts/push_corpus_to_hub.py \
 - [x] **Phase 0** — Scaffolding: tooling, CI, strict typing
 - [x] **Phase 1** — BOE ingestion pipeline → corpus dataset on HF Hub
 - [x] **Phase 2** — Eval harness: retrieval metrics + golden set + baseline, plus a
-  provider-agnostic LLM layer (Gemini/Groq) and an LLM-as-judge end-to-end eval
-  _(run the e2e eval once a free API key is set)_
+  provider-agnostic LLM layer (Gemini/Groq) and an LLM-as-judge end-to-end baseline
+  (faithfulness 0.990, correctness 0.895)
 - [ ] **Phase 3** — Retrieval engineering: ✅ hybrid BM25+dense (RRF); next: reranking, chunking ablations
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
 - [ ] **Phase 5** — Grounded generation with citation validation
@@ -121,10 +121,22 @@ python scripts/run_retrieval_ablation.py --corpus data/corpus/boe-2024.parquet \
 
 ### End-to-end (answer quality)
 
-A provider-agnostic LLM layer (`src/boe_rag/llm/`, Gemini + Groq with a fallback chain)
-powers both a baseline grounded answerer (cite-or-refuse prompting) and an **LLM-as-judge**
-that scores each generated answer for **faithfulness** (grounded in the retrieved passages?)
-and **correctness** (matches the reference answer?). Run it once an API key is set:
+A provider-agnostic LLM layer (`src/boe_rag/llm/`, Gemini + Groq with a fallback chain
+that trips a circuit breaker on a rate-limited provider) powers both a baseline grounded
+answerer (cite-or-refuse prompting) and an **LLM-as-judge** that scores each generated
+answer for **faithfulness** (grounded in the retrieved passages?) and **correctness**
+(matches the reference answer?).
+
+**Baseline** — dense retrieval (k=5) + cite-or-refuse generation, judged over the 20-question
+golden set:
+
+| Mean faithfulness | Mean correctness | Refusal rate |
+|---|---|---|
+| 0.990 | 0.895 | 0.050 |
+
+Near-perfect faithfulness confirms the cite-or-refuse prompt rarely hallucinates; correctness
+is the headroom that retrieval and generation work will target. Full report:
+[`reports/e2e_baseline.md`](reports/e2e_baseline.md). Reproduce it once an API key is set:
 
 ```bash
 $env:GEMINI_API_KEY = "..."   # and/or $env:GROQ_API_KEY = "..."
