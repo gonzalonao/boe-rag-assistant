@@ -9,11 +9,19 @@ The ``ml`` extra is *not* needed, but at least one LLM API key must be set
 (``GROQ_API_KEY`` recommended; ``GEMINI_API_KEY``/``GOOGLE_API_KEY`` also work).
 Groq is the reliable free option — Gemini's free tier rate-limits hard.
 
-This is a long job against free-tier limits, so it is built to survive them: on a
-rate limit it waits for the provider's cool-down and retries, and it always writes
-whatever it has collected (even if interrupted or stopped early).
+This is a long job against free-tier limits, so it is built to survive them and to
+*resume*: on a rate limit it waits for the provider's cool-down and retries, and it
+always writes whatever it has collected (even if interrupted or stopped early).
 
-Example:
+It is designed to be run many times until the corpus is covered. Kept examples are
+merged into ``--out`` (never overwritten), and every chunk that has been *attempted*
+(kept or dropped) is recorded in a ``<out>.processed`` ledger so later runs skip it
+and never re-spend quota on it. ``--limit`` therefore means "new chunks to attempt
+this run" -- set it to whatever your remaining daily quota allows, run, get rate-
+limited, and run again later to pick up exactly where you left off. Keep ``--seed``
+constant across runs so the chunk order stays stable.
+
+Example (run this repeatedly):
     python scripts/generate_evalset.py --corpus data/corpus/boe-2024.parquet \
         --out eval_data/generated_evalset.jsonl --limit 150
 """
@@ -28,7 +36,7 @@ from pathlib import Path
 
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
-from boe_rag.eval.dataset import EvalExample, save_evalset
+from boe_rag.eval.dataset import EvalExample, load_evalset, save_evalset
 from boe_rag.eval.generate import generate_qa, is_self_contained
 from boe_rag.eval.judge import judge_faithfulness
 from boe_rag.llm.base import LLMError, LLMRateLimitError
@@ -56,6 +64,28 @@ def _load_corpus(path: Path) -> list[tuple[str, str, str]]:
             data["chunk_id"], data["text"], data["citation"], strict=True
         )
     ]
+
+
+def _processed_path(out: Path) -> Path:
+    """Sidecar ledger of attempted chunk ids, alongside the output file."""
+    return out.with_name(f"{out.name}.processed")
+
+
+def _load_processed(path: Path) -> set[str]:
+    """Load the set of chunk ids already attempted in earlier runs."""
+    if not path.is_file():
+        return set()
+    with path.open(encoding="utf-8") as handle:
+        return {line.strip() for line in handle if line.strip()}
+
+
+def _save_processed(path: Path, ids: set[str]) -> None:
+    """Persist the attempted-chunk ledger, one id per line, sorted."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for chunk_id in sorted(ids):
+            handle.write(chunk_id)
+            handle.write("\n")
 
 
 def _make_example(
@@ -106,7 +136,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Destination .jsonl.",
     )
     parser.add_argument(
-        "--limit", type=int, default=150, help="Number of chunks to sample."
+        "--limit",
+        type=int,
+        default=150,
+        help="Max NEW chunks to attempt this run; already-processed chunks are "
+        "skipped. Size it to your remaining quota and re-run to resume.",
     )
     parser.add_argument(
         "--min-chars",
@@ -114,7 +148,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MIN_CHARS,
         help="Skip chunks shorter than this many characters.",
     )
-    parser.add_argument("--seed", type=int, default=42, help="Sampling RNG seed.")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="RNG seed for chunk order; keep it constant across runs to resume.",
+    )
     parser.add_argument(
         "--min-faithfulness",
         type=float,
@@ -149,24 +188,42 @@ def main(argv: list[str] | None = None) -> int:
 
     corpus = _load_corpus(args.corpus)
     candidates = [item for item in corpus if len(item[1]) >= args.min_chars]
-    sample_size = min(args.limit, len(candidates))
-    sample = random.Random(args.seed).sample(candidates, sample_size)
+    order = candidates[:]
+    random.Random(args.seed).shuffle(order)
+
+    out_path: Path = args.out
+    processed_path = _processed_path(out_path)
+    existing = load_evalset(out_path) if out_path.is_file() else []
+    processed = _load_processed(processed_path)
+    # Backfill the ledger for evalsets produced before resume support existed.
+    processed |= {ex.relevant_chunk_ids[0] for ex in existing}
+
+    pending = [item for item in order if item[0] not in processed]
+    this_run = min(args.limit, len(pending))
     logger.info(
-        "Generating from %d of %d eligible chunks with %s ...",
-        sample_size,
+        "Resuming with %d kept example(s); %d of %d eligible chunk(s) already "
+        "processed. Attempting up to %d new chunk(s) this run with %s ...",
+        len(existing),
+        len(processed),
         len(candidates),
+        this_run,
         provider.name,
     )
 
     validate = not args.no_validate and args.min_faithfulness > 0.0
-    examples: list[EvalExample] = []
+    new_examples: list[EvalExample] = []
+    newly_processed: set[str] = set()
     dropped_error = dropped_deictic = dropped_unfaithful = 0
     stopped_early = False
+    attempted = 0
 
     try:
-        for index, (chunk_id, text, citation) in enumerate(sample, start=1):
+        for chunk_id, text, citation in pending:
+            if attempted >= args.limit:
+                break
             example: EvalExample | None = None
             status = "error"
+            resolved = False
             for attempt in range(1, MAX_RATE_LIMIT_RETRIES + 1):
                 try:
                     example, status = _make_example(
@@ -177,14 +234,15 @@ def main(argv: list[str] | None = None) -> int:
                         validate=validate,
                         min_faithfulness=args.min_faithfulness,
                     )
+                    resolved = True
                     break
                 except LLMRateLimitError:
                     if attempt == MAX_RATE_LIMIT_RETRIES:
                         logger.error(
                             "Still rate-limited after %d waits; stopping early "
-                            "with %d examples kept.",
+                            "with %d new example(s) kept.",
                             attempt,
-                            len(examples),
+                            len(new_examples),
                         )
                         stopped_early = True
                         break
@@ -198,14 +256,23 @@ def main(argv: list[str] | None = None) -> int:
                 except LLMError as err:
                     logger.warning("Generation failed for %s: %s", chunk_id, err)
                     status = "error"
+                    resolved = True
                     break
 
             if stopped_early:
                 break
+            if not resolved:
+                continue
+            # Only mark a chunk processed once we got a definitive outcome, so a
+            # rate-limit stop leaves it for the next run rather than burning it.
+            attempted += 1
+            newly_processed.add(chunk_id)
             if status == "ok" and example is not None:
-                examples.append(example)
-                if index % 10 == 0:
-                    logger.info("Kept %d / processed %d ...", len(examples), index)
+                new_examples.append(example)
+                if attempted % 10 == 0:
+                    logger.info(
+                        "Kept %d new / attempted %d ...", len(new_examples), attempted
+                    )
             elif status == "deictic":
                 dropped_deictic += 1
             elif status == "unfaithful":
@@ -214,18 +281,27 @@ def main(argv: list[str] | None = None) -> int:
                 dropped_error += 1
     except KeyboardInterrupt:
         logger.warning(
-            "Interrupted; saving %d examples collected so far.", len(examples)
+            "Interrupted; saving %d new example(s) collected so far.",
+            len(new_examples),
         )
 
-    written = save_evalset(examples, args.out)
+    written = save_evalset(list(existing) + new_examples, out_path)
+    _save_processed(processed_path, processed | newly_processed)
     logger.info(
-        "Wrote %d examples to %s (dropped: %d errors, %d deictic, %d unfaithful)%s",
+        "Wrote %d example(s) total to %s (+%d new this run; dropped this run: "
+        "%d errors, %d deictic, %d unfaithful)%s",
         written,
-        args.out,
+        out_path,
+        len(new_examples),
         dropped_error,
         dropped_deictic,
         dropped_unfaithful,
         " [stopped early: persistent rate limits]" if stopped_early else "",
+    )
+    logger.info(
+        "Ledger now covers %d processed chunk(s): %s",
+        len(processed | newly_processed),
+        processed_path,
     )
     return 0
 
