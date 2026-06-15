@@ -8,6 +8,7 @@ against a curated golden dataset before it ships.
 [![CI](https://github.com/gonzalonao/boe-rag-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/gonzalonao/boe-rag-assistant/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+[![Live demo](https://img.shields.io/badge/%F0%9F%A4%97%20demo-Hugging%20Face%20Space-yellow)](https://huggingface.co/spaces/gonzalonao/boe-rag-assistant)
 
 **Tech stack:** Python · Qdrant (hybrid dense + BM25 retrieval) · sentence-transformers ·
 ONNX Runtime · FastAPI · Gradio · Hugging Face Hub (datasets, models, Spaces) · RAGAS ·
@@ -70,8 +71,8 @@ python scripts/push_corpus_to_hub.py \
   (recall 0.900→1.000), and a chunking ablation validating article-level chunks
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
 - [ ] **Phase 5** — Grounded generation with citation validation
-- [ ] **Phase 6** — Serving: ✅ FastAPI service (`/ask`, `/search`, `/health`) + ✅ Gradio
-  demo UI (chat with linked citations + a Quality tab); next: Hugging Face Space deployment
+- [x] **Phase 6** — Serving: FastAPI service (`/ask`, `/search`, `/health`) + Gradio demo UI
+  (chat with linked citations + a Quality tab) + containerised Hugging Face Space deployment
 - [ ] **Phase 7** — Scheduled incremental ingestion + observability
 
 ## Evaluation (Phase 2)
@@ -247,6 +248,35 @@ $env:GROQ_API_KEY = "..."
 uvicorn boe_rag.service.app:app --port 8000
 # → http://localhost:8000/        (chat UI)
 # → http://localhost:8000/docs    (OpenAPI)
+```
+
+## Deployment (Phase 6)
+
+The demo runs as a containerised **Hugging Face Space** (Docker SDK). The image
+([`Dockerfile`](Dockerfile)) is built to make cold start cheap on free CPU
+hardware — everything the running container needs is baked in at build time:
+
+- **CPU-only PyTorch**, so the multi-gigabyte CUDA wheel is never pulled.
+- the **corpus** Parquet, fetched from the published HF dataset
+  ([`scripts/fetch_corpus.py`](scripts/fetch_corpus.py));
+- **precomputed E5 passage embeddings** ([`scripts/precompute_embeddings.py`](scripts/precompute_embeddings.py)),
+  so the service loads a matrix instead of re-encoding all 2,225 passages on boot;
+- the **embedding + cross-encoder weights** ([`scripts/warm_models.py`](scripts/warm_models.py)),
+  so there are no model downloads at runtime.
+
+At serving time the app reads `BOE_EMBEDDINGS_PATH` and skips the startup encode
+when the precomputed matrix matches the corpus (falling back to encoding if it is
+stale, so a mismatched file can never serve wrong results). Pushes to `main` are
+mirrored to the Space by [`.github/workflows/deploy-space.yml`](.github/workflows/deploy-space.yml),
+which swaps in the Space card ([`deploy/space/README.md`](deploy/space/README.md))
+as the Space README and force-pushes; the Space then rebuilds the image. The only
+runtime secret is `GROQ_API_KEY`, set in the Space settings.
+
+```bash
+# Build and run the production image locally (mirrors the Space):
+docker build -t boe-rag .
+docker run --rm -p 7860:7860 -e GROQ_API_KEY="..." boe-rag
+# → http://localhost:7860/
 ```
 
 ## Getting started

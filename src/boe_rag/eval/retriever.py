@@ -12,6 +12,7 @@ ranking logic can be unit-tested with a trivial fake embedder, keeping the heavy
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Protocol
 
 import numpy as np
@@ -19,6 +20,45 @@ import numpy.typing as npt
 
 #: A matrix of L2-normalised row vectors.
 FloatMatrix = npt.NDArray[np.float32]
+
+
+def save_embeddings(path: Path, chunk_ids: Sequence[str], matrix: FloatMatrix) -> None:
+    """Persist precomputed passage embeddings to a compressed ``.npz`` file.
+
+    The saved file pairs each chunk id with its row in ``matrix`` so the index
+    can be rebuilt at serving time without re-encoding the corpus.
+
+    Args:
+        path: Destination ``.npz`` path (parent directories are created).
+        chunk_ids: Stable chunk ids, aligned row-for-row with ``matrix``.
+        matrix: One L2-normalised embedding per chunk.
+
+    Raises:
+        ValueError: If the number of ids and rows differ.
+    """
+    if len(chunk_ids) != matrix.shape[0]:
+        raise ValueError("chunk_ids and matrix rows must have the same length")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        path,
+        chunk_ids=np.asarray(list(chunk_ids), dtype=object),
+        matrix=np.asarray(matrix, dtype=np.float32),
+    )
+
+
+def load_embeddings(path: Path) -> tuple[list[str], FloatMatrix]:
+    """Load precomputed passage embeddings saved by :func:`save_embeddings`.
+
+    Args:
+        path: Path to the ``.npz`` file.
+
+    Returns:
+        The chunk ids and their embedding matrix.
+    """
+    with np.load(path, allow_pickle=True) as data:
+        chunk_ids = [str(cid) for cid in data["chunk_ids"]]
+        matrix = np.asarray(data["matrix"], dtype=np.float32)
+    return chunk_ids, matrix
 
 
 class Searcher(Protocol):
@@ -79,6 +119,27 @@ class DenseRetriever:
             raise ValueError("cannot index an empty corpus")
         self._chunk_ids = list(chunk_ids)
         self._matrix = self._embedder.embed_passages(list(texts))
+
+    def index_precomputed(self, chunk_ids: Sequence[str], matrix: FloatMatrix) -> None:
+        """Load a precomputed passage-embedding matrix instead of encoding.
+
+        Used at serving time to skip re-embedding the whole corpus: the matrix
+        must come from the same embedder this retriever queries with. The
+        embedder is still used for query encoding at search time.
+
+        Args:
+            chunk_ids: Stable ids, aligned row-for-row with ``matrix``.
+            matrix: One L2-normalised embedding per chunk.
+
+        Raises:
+            ValueError: If the inputs are empty or of unequal length.
+        """
+        if len(chunk_ids) != matrix.shape[0]:
+            raise ValueError("chunk_ids and matrix rows must have the same length")
+        if not chunk_ids:
+            raise ValueError("cannot index an empty corpus")
+        self._chunk_ids = list(chunk_ids)
+        self._matrix = np.asarray(matrix, dtype=np.float32)
 
     def search(self, query: str, k: int = 10) -> list[tuple[str, float]]:
         """Return the top-k chunk ids and similarity scores for a query.

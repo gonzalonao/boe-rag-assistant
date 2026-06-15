@@ -8,12 +8,18 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from boe_rag.eval.dataset import EvalExample
-from boe_rag.eval.retriever import DenseRetriever, FloatMatrix
+from boe_rag.eval.retriever import (
+    DenseRetriever,
+    FloatMatrix,
+    load_embeddings,
+    save_embeddings,
+)
 from boe_rag.eval.runner import run_retrieval_eval
 
 _DIM = 64
@@ -81,6 +87,54 @@ def test_index_length_mismatch_raises() -> None:
     """Mismatched ids/texts lengths are rejected."""
     with pytest.raises(ValueError, match="same length"):
         DenseRetriever(_FakeEmbedder()).index(["a"], ["x", "y"])
+
+
+def test_index_precomputed_matches_index() -> None:
+    """A retriever loaded from precomputed vectors ranks like a freshly indexed one."""
+    ids = ["c1", "c2", "c3"]
+    texts = [
+        "precio del gas licuado por canalizacion",
+        "consulado honorario en bengasi libia",
+        "presupuesto general de navarra importe",
+    ]
+    embedder = _FakeEmbedder()
+    matrix = embedder.embed_passages(texts)
+
+    retriever = DenseRetriever(embedder)
+    retriever.index_precomputed(ids, matrix)
+
+    assert retriever.search(
+        "precio del gas por canalizacion", k=3
+    ) == _retriever().search("precio del gas por canalizacion", k=3)
+
+
+def test_index_precomputed_length_mismatch_raises() -> None:
+    """A matrix whose row count differs from the ids is rejected."""
+    with pytest.raises(ValueError, match="same length"):
+        DenseRetriever(_FakeEmbedder()).index_precomputed(
+            ["a", "b"], np.zeros((1, _DIM), dtype=np.float32)
+        )
+
+
+def test_save_and_load_embeddings_round_trip(tmp_path: Path) -> None:
+    """Embeddings saved to disk load back with identical ids and values."""
+    ids = ["c1", "c2", "c3"]
+    matrix = _FakeEmbedder().embed_passages(["uno", "dos", "tres"])
+    out = tmp_path / "emb.npz"
+
+    save_embeddings(out, ids, matrix)
+    loaded_ids, loaded_matrix = load_embeddings(out)
+
+    assert loaded_ids == ids
+    np.testing.assert_allclose(loaded_matrix, matrix)
+
+
+def test_save_embeddings_length_mismatch_raises(tmp_path: Path) -> None:
+    """Saving a matrix whose rows do not match the ids is rejected."""
+    with pytest.raises(ValueError, match="same length"):
+        save_embeddings(
+            tmp_path / "emb.npz", ["a"], np.zeros((2, _DIM), dtype=np.float32)
+        )
 
 
 def test_run_retrieval_eval_scores_perfectly_on_aligned_set() -> None:

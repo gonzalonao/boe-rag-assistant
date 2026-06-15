@@ -8,6 +8,8 @@ it (``/ask``, ``/search``, ``/health``, ``/docs``).
 
 Configuration via environment:
     ``BOE_CORPUS_PATH``  path to the corpus Parquet (default the bundled 2024 set).
+    ``BOE_EMBEDDINGS_PATH``  optional precomputed-embeddings ``.npz`` to skip the
+        startup encode (see ``scripts/precompute_embeddings.py``).
     ``BOE_REPORTS_DIR``  directory of eval report JSON for the Quality tab.
     ``GROQ_API_KEY`` / ``GEMINI_API_KEY``  at least one is required for ``/ask``.
 """
@@ -25,7 +27,7 @@ import pyarrow.parquet as pq
 from boe_rag.eval.cross_encoder import CrossEncoderReranker
 from boe_rag.eval.embedding import E5Embedder
 from boe_rag.eval.hybrid import HybridRetriever
-from boe_rag.eval.retriever import DenseRetriever
+from boe_rag.eval.retriever import DenseRetriever, load_embeddings
 from boe_rag.eval.sparse import BM25Index
 from boe_rag.llm.base import LLMError
 from boe_rag.llm.factory import FallbackProvider, build_available_providers
@@ -39,6 +41,31 @@ logger = logging.getLogger(__name__)
 DEFAULT_CORPUS_PATH = Path("data/corpus/boe-2024.parquet")
 #: Default directory of eval report JSON when ``BOE_REPORTS_DIR`` is unset.
 DEFAULT_REPORTS_DIR = Path("reports")
+
+
+def _index_dense(ids: list[str], texts: list[str]) -> DenseRetriever:
+    """Build the dense retriever, loading precomputed embeddings if available.
+
+    When ``BOE_EMBEDDINGS_PATH`` points at a ``.npz`` produced by
+    ``scripts/precompute_embeddings.py``, the corpus is not re-encoded at boot —
+    the matrix is loaded directly (the embedder is kept only for query encoding).
+    The precomputed ids must match the corpus order; otherwise we fall back to
+    encoding so a stale file can never serve wrong results.
+    """
+    dense = DenseRetriever(E5Embedder())
+    embeddings_path = os.environ.get("BOE_EMBEDDINGS_PATH")
+    if embeddings_path and Path(embeddings_path).is_file():
+        cached_ids, matrix = load_embeddings(Path(embeddings_path))
+        if cached_ids == ids:
+            logger.info("Loading %d precomputed embeddings ...", len(cached_ids))
+            dense.index_precomputed(cached_ids, matrix)
+            return dense
+        logger.warning(
+            "Precomputed embeddings at %s do not match the corpus; re-encoding.",
+            embeddings_path,
+        )
+    dense.index(ids, texts)
+    return dense
 
 
 def _load_corpus(
@@ -88,8 +115,7 @@ def build_engine(corpus_path: Path | None = None) -> RagEngine:
     ids, texts, lookup = _load_corpus(path)
 
     logger.info("Indexing %d chunks ...", len(ids))
-    dense = DenseRetriever(E5Embedder())
-    dense.index(ids, texts)
+    dense = _index_dense(ids, texts)
     bm25 = BM25Index()
     bm25.index(ids, texts)
     hybrid = HybridRetriever(dense, bm25)
