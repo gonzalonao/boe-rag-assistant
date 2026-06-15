@@ -70,7 +70,7 @@ python scripts/push_corpus_to_hub.py \
   (recall 0.900→1.000), and a chunking ablation validating article-level chunks
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
 - [ ] **Phase 5** — Grounded generation with citation validation
-- [ ] **Phase 6** — FastAPI service + Gradio UI on a Hugging Face Space
+- [ ] **Phase 6** — Serving: ✅ FastAPI service (`/ask`, `/search`, `/health`); next: Gradio UI + HF Space
 - [ ] **Phase 7** — Scheduled incremental ingestion + observability
 
 ## Evaluation (Phase 2)
@@ -210,6 +210,25 @@ is the headroom that retrieval and generation work will target. Full report:
 $env:GEMINI_API_KEY = "..."   # and/or $env:GROQ_API_KEY = "..."
 python scripts/run_e2e_eval.py --corpus data/corpus/boe-2024.parquet \
     --out reports/e2e_baseline
+```
+
+## API service (Phase 6)
+
+The query pipeline is served by a FastAPI app (`src/boe_rag/service/`). A `RagEngine`
+composes the measured pieces — hybrid retrieval → cross-encoder rerank → grounded,
+cited generation — behind an `Engine` protocol, so the HTTP layer is unit-tested with a
+fake engine (no models or API keys in CI). Endpoints:
+
+- `GET /health` — readiness and indexed chunk count.
+- `POST /search` — raw passage retrieval (`{"query": ..., "k": 10}`).
+- `POST /ask` — grounded answer with citations (`{"question": ..., "k": 5}`); identical
+  questions are cached and a per-client rate limit protects the free LLM tier.
+
+```bash
+pip install -e ".[api,ml]"             # service + embedding/rerank models
+$env:GROQ_API_KEY = "..."              # at least one LLM key for /ask
+uvicorn boe_rag.service.app:app --port 8000
+# → http://localhost:8000/docs  (interactive OpenAPI UI)
 ```
 
 ## Getting started
