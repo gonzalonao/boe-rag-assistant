@@ -66,7 +66,8 @@ python scripts/push_corpus_to_hub.py \
 - [x] **Phase 2** — Eval harness: retrieval metrics + golden set + baseline, plus a
   provider-agnostic LLM layer (Gemini/Groq) and an LLM-as-judge end-to-end baseline
   (faithfulness 0.990, correctness 0.895)
-- [ ] **Phase 3** — Retrieval engineering: ✅ hybrid BM25+dense (RRF), ✅ cross-encoder reranking (recall 0.900→1.000); next: chunking ablations
+- [x] **Phase 3** — Retrieval engineering: hybrid BM25+dense (RRF), cross-encoder reranking
+  (recall 0.900→1.000), and a chunking ablation validating article-level chunks
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
 - [ ] **Phase 5** — Grounded generation with citation validation
 - [ ] **Phase 6** — FastAPI service + Gradio UI on a Hugging Face Space
@@ -159,6 +160,32 @@ candidate pool but ranked too low; the cross-encoder promotes them into the top 
 python scripts/run_rerank_ablation.py --corpus data/corpus/boe-2024.parquet \
     --out reports/retrieval_rerank
 ```
+
+### Chunking ablation (Phase 3)
+
+Does structure-aware, article-level chunking actually beat the obvious alternatives? The
+corpus is re-chunked three ways (`src/boe_rag/eval/chunking.py`) and scored at **document
+granularity** (a hit = a chunk from a relevant document), so strategies with different chunk
+boundaries are compared fairly:
+
+| Strategy | Recall@10 | Hit rate@10 | MRR | nDCG@10 |
+|---|---|---|---|---|
+| **article (current)** | 1.000 | 1.000 | **0.975** | **0.982** |
+| fixed-size (1000/150) | 1.000 | 1.000 | 0.912 | 0.935 |
+| whole-document | 1.000 | 1.000 | 0.975 | 0.982 |
+
+Every document is found (recall saturates on 105 docs / 20 questions), but ranking separates
+them: **fixed-size windows rank the right document lower (MRR −0.063)** because they fragment
+articles, while **article-level matches whole-document embedding — and uniquely supports
+exact article citations** that whole-document loses. The production choice holds up. Full
+report: [`reports/retrieval_chunking.md`](reports/retrieval_chunking.md). Reproduce it:
+
+```bash
+python scripts/run_chunking_ablation.py --corpus data/corpus/boe-2024.parquet \
+    --out reports/retrieval_chunking
+```
+
+> Recall is saturated at this scale; finer signal needs the larger eval set (see roadmap).
 
 ### End-to-end (answer quality)
 
