@@ -30,6 +30,7 @@ qdrant_storage/
 # Work-in-progress generated eval set (commit deliberately with `git add -f`
 # once it is a complete, reviewed silver set — see project plan).
 eval_data/generated_evalset.jsonl
+eval_data/*.processed
 
 # OS / editor noise
 .DS_Store
