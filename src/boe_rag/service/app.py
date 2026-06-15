@@ -1,20 +1,25 @@
 """Serving entrypoint: assemble the real engine and expose the ASGI ``app``.
 
-Run with ``uvicorn boe_rag.service.app:app`` (the ``api`` extra). This module
-loads the corpus and the embedding/rerank models at import time, so it is the
-production wiring — never imported by the unit tests, which inject a fake engine.
+Run with ``uvicorn boe_rag.service.app:app`` (the ``api`` + ``ui`` extras). This
+module loads the corpus and the embedding/rerank models at import time, so it is
+the production wiring — never imported by the unit tests, which inject a fake
+engine. The Gradio demo UI is mounted at ``/`` and the JSON API lives alongside
+it (``/ask``, ``/search``, ``/health``, ``/docs``).
 
 Configuration via environment:
     ``BOE_CORPUS_PATH``  path to the corpus Parquet (default the bundled 2024 set).
+    ``BOE_REPORTS_DIR``  directory of eval report JSON for the Quality tab.
     ``GROQ_API_KEY`` / ``GEMINI_API_KEY``  at least one is required for ``/ask``.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
 
+import gradio as gr
 import pyarrow.parquet as pq
 
 from boe_rag.eval.cross_encoder import CrossEncoderReranker
@@ -26,11 +31,14 @@ from boe_rag.llm.base import LLMError
 from boe_rag.llm.factory import FallbackProvider, build_available_providers
 from boe_rag.service.api import create_app
 from boe_rag.service.engine import ChunkInfo, RagEngine
+from boe_rag.service.ui import build_ui, render_quality_markdown
 
 logger = logging.getLogger(__name__)
 
 #: Default corpus location when ``BOE_CORPUS_PATH`` is unset.
 DEFAULT_CORPUS_PATH = Path("data/corpus/boe-2024.parquet")
+#: Default directory of eval report JSON when ``BOE_REPORTS_DIR`` is unset.
+DEFAULT_REPORTS_DIR = Path("reports")
 
 
 def _load_corpus(
@@ -94,4 +102,39 @@ def build_engine(corpus_path: Path | None = None) -> RagEngine:
     )
 
 
-app = create_app(build_engine())
+def _load_json(path: Path) -> dict[str, object]:
+    """Load a JSON object from ``path``, or an empty dict if it is missing."""
+    if not path.is_file():
+        logger.warning("Report not found, Quality tab will note it: %s", path)
+        return {}
+    with path.open(encoding="utf-8") as handle:
+        data: dict[str, object] = json.load(handle)
+    return data
+
+
+def _quality_markdown(reports_dir: Path | None = None) -> str:
+    """Render the Quality-tab Markdown from the eval report JSON files."""
+    directory = reports_dir or Path(
+        os.environ.get("BOE_REPORTS_DIR", str(DEFAULT_REPORTS_DIR))
+    )
+    retrieval = _load_json(directory / "retrieval_rerank.json")
+    e2e = _load_json(directory / "e2e_baseline.json")
+    return render_quality_markdown(retrieval, e2e)  # type: ignore[arg-type]
+
+
+def build_app(corpus_path: Path | None = None) -> object:
+    """Assemble the FastAPI app with the Gradio demo UI mounted at ``/``.
+
+    Args:
+        corpus_path: Corpus Parquet path; defaults to the env/bundled location.
+
+    Returns:
+        The ASGI application (FastAPI with Gradio mounted at the root).
+    """
+    engine = build_engine(corpus_path)
+    api = create_app(engine)
+    demo = build_ui(engine, _quality_markdown())
+    return gr.mount_gradio_app(api, demo, path="/")
+
+
+app = build_app()

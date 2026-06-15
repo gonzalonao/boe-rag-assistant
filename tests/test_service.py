@@ -91,8 +91,16 @@ def test_ask_returns_503_when_llm_fails() -> None:
 
 
 def test_rate_limit_blocks_excess_requests() -> None:
-    """Requests beyond the per-client limit get a 429."""
+    """Requests to an API endpoint beyond the per-client limit get a 429."""
     client = TestClient(create_app(_FakeEngine(), rate_limit=2))
+    payload = {"query": "tipo de IVA", "k": 5}
+    assert client.post("/search", json=payload).status_code == 200
+    assert client.post("/search", json=payload).status_code == 200
+    assert client.post("/search", json=payload).status_code == 429
+
+
+def test_health_is_not_rate_limited() -> None:
+    """/health is exempt so the UI and probes are never throttled."""
+    client = TestClient(create_app(_FakeEngine(), rate_limit=1))
     assert client.get("/health").status_code == 200
     assert client.get("/health").status_code == 200
-    assert client.get("/health").status_code == 429

@@ -70,7 +70,8 @@ python scripts/push_corpus_to_hub.py \
   (recall 0.900→1.000), and a chunking ablation validating article-level chunks
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
 - [ ] **Phase 5** — Grounded generation with citation validation
-- [ ] **Phase 6** — Serving: ✅ FastAPI service (`/ask`, `/search`, `/health`); next: Gradio UI + HF Space
+- [ ] **Phase 6** — Serving: ✅ FastAPI service (`/ask`, `/search`, `/health`) + ✅ Gradio
+  demo UI (chat with linked citations + a Quality tab); next: Hugging Face Space deployment
 - [ ] **Phase 7** — Scheduled incremental ingestion + observability
 
 ## Evaluation (Phase 2)
@@ -229,6 +230,23 @@ pip install -e ".[api,ml]"             # service + embedding/rerank models
 $env:GROQ_API_KEY = "..."              # at least one LLM key for /ask
 uvicorn boe_rag.service.app:app --port 8000
 # → http://localhost:8000/docs  (interactive OpenAPI UI)
+```
+
+## Demo UI (Phase 6)
+
+A Gradio chat UI (`src/boe_rag/service/ui.py`) is mounted at the root of the same
+FastAPI app, so the demo and the JSON API share one `Engine` and can never drift. It
+has an **Assistant** tab (ask a question, get a grounded answer with each source linked
+back to boe.es) and a **Quality** tab that surfaces the measured eval metrics. When the
+free LLM tier is rate-limited, the chat degrades gracefully to showing the retrieved
+passages instead of failing, and `/search` keeps working without an LLM.
+
+```bash
+pip install -e ".[api,ml,ui]"          # adds Gradio
+$env:GROQ_API_KEY = "..."
+uvicorn boe_rag.service.app:app --port 8000
+# → http://localhost:8000/        (chat UI)
+# → http://localhost:8000/docs    (OpenAPI)
 ```
 
 ## Getting started

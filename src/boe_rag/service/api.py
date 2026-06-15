@@ -35,6 +35,9 @@ DEFAULT_CACHE_SIZE = 256
 DEFAULT_RATE_LIMIT = 60
 #: Rate-limit window in seconds.
 DEFAULT_RATE_WINDOW = 60.0
+#: Only the expensive API endpoints are rate-limited; the Gradio UI mounted at
+#: the root issues many internal requests and must not be throttled.
+_RATE_LIMITED_PATHS = ("/ask", "/search")
 
 
 class _AnswerCache:
@@ -108,11 +111,12 @@ def create_app(
     async def _rate_limit(
         request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
-        client = request.client.host if request.client else "unknown"
-        if not limiter.allow(client):
-            return JSONResponse(
-                status_code=429, content={"detail": "rate limit exceeded"}
-            )
+        if request.url.path in _RATE_LIMITED_PATHS:
+            client = request.client.host if request.client else "unknown"
+            if not limiter.allow(client):
+                return JSONResponse(
+                    status_code=429, content={"detail": "rate limit exceeded"}
+                )
         return await call_next(request)
 
     @app.get("/health", response_model=HealthResponse)
