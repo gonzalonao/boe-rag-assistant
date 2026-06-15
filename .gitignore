@@ -27,6 +27,10 @@ qdrant_storage/
 *.onnx
 *.gguf
 
+# Work-in-progress generated eval set (commit deliberately with `git add -f`
+# once it is a complete, reviewed silver set — see project plan).
+eval_data/generated_evalset.jsonl
+
 # OS / editor noise
 .DS_Store
 Thumbs.db
