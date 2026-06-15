@@ -27,7 +27,7 @@ class GeminiProvider:
 
     Args:
         api_key: API key; falls back to ``GEMINI_API_KEY``/``GOOGLE_API_KEY``.
-        model: Gemini model id.
+        model: Gemini model id; falls back to ``GEMINI_MODEL`` then the default.
         timeout: Per-request timeout in seconds.
 
     Raises:
@@ -37,7 +37,7 @@ class GeminiProvider:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = DEFAULT_GEMINI_MODEL,
+        model: str | None = None,
         *,
         timeout: float = 60.0,
     ) -> None:
@@ -52,7 +52,7 @@ class GeminiProvider:
                 "Gemini API key not found; set GEMINI_API_KEY or GOOGLE_API_KEY."
             )
         self._key = key
-        self._model = model
+        self._model = model or os.environ.get("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL
         self._timeout = timeout
         self._client = httpx.Client(timeout=timeout)
 

@@ -25,7 +25,9 @@ class GroqProvider:
 
     Args:
         api_key: API key; falls back to ``GROQ_API_KEY``.
-        model: Groq model id.
+        model: Groq model id; falls back to ``GROQ_MODEL`` then the default.
+            A smaller model (e.g. ``llama-3.1-8b-instant``) has a much larger
+            free-tier daily-token budget, useful for bulk jobs.
         timeout: Per-request timeout in seconds.
 
     Raises:
@@ -35,7 +37,7 @@ class GroqProvider:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = DEFAULT_GROQ_MODEL,
+        model: str | None = None,
         *,
         timeout: float = 60.0,
     ) -> None:
@@ -44,7 +46,7 @@ class GroqProvider:
         if not key:
             raise LLMError("Groq API key not found; set GROQ_API_KEY.")
         self._key = key
-        self._model = model
+        self._model = model or os.environ.get("GROQ_MODEL") or DEFAULT_GROQ_MODEL
         self._timeout = timeout
         self._client = httpx.Client(timeout=timeout)
 
