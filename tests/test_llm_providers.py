@@ -122,6 +122,14 @@ def test_missing_api_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         GroqProvider()
 
 
+def test_groq_model_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GROQ_MODEL overrides the default model when none is passed."""
+    monkeypatch.setenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    assert GroqProvider(api_key="k").name == "groq:llama-3.1-8b-instant"
+    # An explicit argument still wins over the environment.
+    assert GroqProvider(api_key="k", model="other").name == "groq:other"
+
+
 class _FakeProvider:
     """Minimal provider for fallback tests."""
 

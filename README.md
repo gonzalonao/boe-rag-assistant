@@ -89,9 +89,14 @@ them, so the two tiers are reported separately and the gold set stays the source
 
 ```bash
 $env:GROQ_API_KEY = "..."   # Groq recommended; Gemini's free tier rate-limits hard
+$env:GROQ_MODEL = "llama-3.1-8b-instant"   # bigger free daily-token budget for bulk jobs
 python scripts/generate_evalset.py --corpus data/corpus/boe-2024.parquet \
     --out eval_data/generated_evalset.jsonl --limit 150
 ```
+
+The generator survives free-tier limits: it waits out rate-limit cool-downs and retries,
+and always saves what it has collected. `GROQ_MODEL`/`GEMINI_MODEL` select the model;
+`--no-validate` halves token usage by skipping the faithfulness filter.
 
 **Baseline** — `intfloat/multilingual-e5-small`, dense-only retrieval, 2024 corpus
 (2,225 chunks, 20 questions), the "before" picture every later change is measured against:
