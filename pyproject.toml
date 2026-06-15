@@ -33,6 +33,10 @@ hub = [
 ]
 ml = [
     "sentence-transformers==5.1.2",
+    # The cross-encoder ships a SentencePiece tokenizer with no tokenizer.json,
+    # so transformers converts it on load and needs both of these at runtime.
+    "sentencepiece==0.2.1",
+    "protobuf==7.35.1",
 ]
 # Serving the FastAPI + Gradio app (e.g. on a Hugging Face Space).
 api = [
