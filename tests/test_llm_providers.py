@@ -98,12 +98,44 @@ def test_openrouter_missing_api_key_raises(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_openrouter_model_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     """OPENROUTER_MODEL overrides the default model when none is passed."""
-    monkeypatch.setenv("OPENROUTER_MODEL", "deepseek/deepseek-chat:free")
-    assert (
-        OpenRouterProvider(api_key="k").name == "openrouter:deepseek/deepseek-chat:free"
-    )
+    monkeypatch.setenv("OPENROUTER_MODEL", "vendor/model:free")
+    assert OpenRouterProvider(api_key="k").name == "openrouter:vendor/model:free"
     # An explicit argument still wins over the environment.
     assert OpenRouterProvider(api_key="k", model="other").name == "openrouter:other"
+
+
+def test_openrouter_fallback_chain_sent_as_models_array() -> None:
+    """A comma-separated model list is sent as OpenRouter's `models` fallback array."""
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    provider = OpenRouterProvider(api_key="k", model="a:free, b:free , c:free")
+    _mock(provider, handler)
+    assert provider.complete([ChatMessage(role="user", content="q")]) == "ok"
+    assert seen["model"] == "a:free"
+    assert seen["models"] == ["a:free", "b:free", "c:free"]
+    assert provider.name == "openrouter:a:free (+2 fallbacks)"
+
+
+def test_openrouter_single_model_omits_models_array() -> None:
+    """A single model id does not add the `models` array to the request."""
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    provider = OpenRouterProvider(api_key="k", model="only:free")
+    _mock(provider, handler)
+    provider.complete([ChatMessage(role="user", content="q")])
+    assert "models" not in seen
 
 
 def test_provider_retries_then_succeeds() -> None:
@@ -133,7 +165,7 @@ def test_provider_raises_rate_limit_error_after_retries() -> None:
 
     provider = GroqProvider(api_key="k")
     _mock(provider, handler)
-    with pytest.raises(LLMRateLimitError):
+    with pytest.raises(LLMRateLimitError, match="slow down"):
         provider.complete([ChatMessage(role="user", content="q")])
     assert calls["n"] == 4
 

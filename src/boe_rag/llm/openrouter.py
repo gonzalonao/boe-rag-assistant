@@ -22,10 +22,17 @@ from boe_rag.llm.base import ChatMessage, LLMError
 
 _URL = "https://openrouter.ai/api/v1/chat/completions"
 
-#: Default free model: capable and multilingual (good for Spanish), no token
-#: cost on the free tier. Override with ``OPENROUTER_MODEL``; browse the current
-#: free catalogue at https://openrouter.ai/models?max_price=0.
-DEFAULT_OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+#: Default free model chain, tried in order via OpenRouter's ``models`` fallback
+#: routing so a single congested free endpoint ("rate-limited upstream") does not
+#: fail the request. Free slugs change often; override with ``OPENROUTER_MODEL``
+#: (comma-separated for a chain) and browse the live free catalogue at
+#: https://openrouter.ai/models?max_price=0.
+DEFAULT_OPENROUTER_MODEL = (
+    "qwen/qwen3-next-80b-a3b-instruct:free,"
+    "nvidia/nemotron-3-super-120b-a12b:free,"
+    "openai/gpt-oss-120b:free,"
+    "meta-llama/llama-3.3-70b-instruct:free"
+)
 
 #: Sent as OpenRouter's optional ranking headers; harmless and identifies the app.
 _APP_URL = "https://github.com/gonzalonao/boe-rag-assistant"
@@ -37,12 +44,14 @@ class OpenRouterProvider:
 
     Args:
         api_key: API key; falls back to ``OPENROUTER_API_KEY``.
-        model: OpenRouter model id; falls back to ``OPENROUTER_MODEL`` then the
-            default free model. Append ``:free`` to use a model's free variant.
+        model: One or more OpenRouter model ids; falls back to ``OPENROUTER_MODEL``
+            then the default chain. A comma-separated value becomes a fallback
+            chain (OpenRouter routes to the next when one is unavailable or
+            rate-limited). Append ``:free`` to use a model's free variant.
         timeout: Per-request timeout in seconds.
 
     Raises:
-        LLMError: If no API key can be found.
+        LLMError: If no API key can be found, or no model id resolves.
     """
 
     def __init__(
@@ -52,21 +61,24 @@ class OpenRouterProvider:
         *,
         timeout: float = 60.0,
     ) -> None:
-        """Resolve the API key and open an HTTP client."""
+        """Resolve the API key, model chain, and open an HTTP client."""
         key = api_key or os.environ.get("OPENROUTER_API_KEY")
         if not key:
             raise LLMError("OpenRouter API key not found; set OPENROUTER_API_KEY.")
         self._key = key
-        self._model = (
-            model or os.environ.get("OPENROUTER_MODEL") or DEFAULT_OPENROUTER_MODEL
-        )
+        raw = model or os.environ.get("OPENROUTER_MODEL") or DEFAULT_OPENROUTER_MODEL
+        self._models = [m.strip() for m in raw.split(",") if m.strip()]
+        if not self._models:
+            raise LLMError("OPENROUTER_MODEL resolved to no model ids.")
         self._timeout = timeout
         self._client = httpx.Client(timeout=timeout)
 
     @property
     def name(self) -> str:
-        """Provider identifier including the model id."""
-        return f"openrouter:{self._model}"
+        """Provider identifier: primary model plus any fallback count."""
+        extra = len(self._models) - 1
+        suffix = f" (+{extra} fallback{'s' if extra != 1 else ''})" if extra else ""
+        return f"openrouter:{self._models[0]}{suffix}"
 
     def complete(
         self,
@@ -77,11 +89,15 @@ class OpenRouterProvider:
     ) -> str:
         """Generate a completion via the OpenRouter chat-completions endpoint."""
         body: dict[str, Any] = {
-            "model": self._model,
+            "model": self._models[0],
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        # OpenRouter's `models` array routes to the next id when the primary is
+        # unavailable or rate-limited upstream, avoiding a hard provider failover.
+        if len(self._models) > 1:
+            body["models"] = self._models
         data = post_json_with_retry(
             self._client,
             _URL,
