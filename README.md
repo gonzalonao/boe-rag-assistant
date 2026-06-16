@@ -277,12 +277,13 @@ hardware — everything the running container needs is baked in at build time:
 
 At serving time the app reads `BOE_EMBEDDINGS_PATH` and skips the startup encode
 when the precomputed matrix matches the corpus (falling back to encoding if it is
-stale, so a mismatched file can never serve wrong results). Pushes to `main` are
-mirrored to the Space by [`.github/workflows/deploy-space.yml`](.github/workflows/deploy-space.yml),
-which swaps in the Space card ([`deploy/space/README.md`](deploy/space/README.md))
-as the Space README and force-pushes; the Space then rebuilds the image. The only
-runtime secret is an LLM key — `OPENROUTER_API_KEY` (preferred), `GROQ_API_KEY`, or
-`GEMINI_API_KEY` — set in the Space settings.
+stale, so a mismatched file can never serve wrong results). Each **version tag**
+(`vMAJOR.MINOR.PATCH`) pushed to the repo triggers
+[`.github/workflows/deploy-space.yml`](.github/workflows/deploy-space.yml), which swaps
+in the Space card ([`deploy/space/README.md`](deploy/space/README.md)) as the Space README
+and force-pushes to the Space, which then rebuilds the image — so every deployment is a
+tagged release. The only runtime secret is an LLM key — `OPENROUTER_API_KEY` (preferred),
+`GROQ_API_KEY`, or `GEMINI_API_KEY` — set in the Space settings.
 
 ```bash
 # Build and run the production image locally (mirrors the Space):
