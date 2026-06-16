@@ -11,7 +11,8 @@ Configuration via environment:
     ``BOE_EMBEDDINGS_PATH``  optional precomputed-embeddings ``.npz`` to skip the
         startup encode (see ``scripts/precompute_embeddings.py``).
     ``BOE_REPORTS_DIR``  directory of eval report JSON for the Quality tab.
-    ``GROQ_API_KEY`` / ``GEMINI_API_KEY``  at least one is required for ``/ask``.
+    ``OPENROUTER_API_KEY`` / ``GROQ_API_KEY`` / ``GEMINI_API_KEY``  at least one is
+        required for ``/ask`` (tried in that order; the first with a key leads).
 """
 
 from __future__ import annotations
@@ -107,8 +108,8 @@ def build_engine(corpus_path: Path | None = None) -> RagEngine:
     providers = build_available_providers()
     if not providers:
         raise LLMError(
-            "No LLM provider configured. Set GROQ_API_KEY (recommended) "
-            "and/or GEMINI_API_KEY/GOOGLE_API_KEY."
+            "No LLM provider configured. Set OPENROUTER_API_KEY (recommended) "
+            "and/or GROQ_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY."
         )
 
     logger.info("Loading corpus from %s ...", path)
