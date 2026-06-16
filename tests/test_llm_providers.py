@@ -11,9 +11,12 @@ from boe_rag.llm.base import ChatMessage, LLMError, LLMRateLimitError
 from boe_rag.llm.factory import FallbackProvider, build_available_providers
 from boe_rag.llm.gemini import GeminiProvider
 from boe_rag.llm.groq import GroqProvider
+from boe_rag.llm.openrouter import OpenRouterProvider
 
 
-def _mock(provider: GeminiProvider | GroqProvider, handler: object) -> None:
+def _mock(
+    provider: GeminiProvider | GroqProvider | OpenRouterProvider, handler: object
+) -> None:
     """Swap a provider's HTTP client for one driven by a mock handler."""
     provider._client = httpx.Client(transport=httpx.MockTransport(handler))  # type: ignore[arg-type]
 
@@ -69,6 +72,38 @@ def test_groq_parses_completion() -> None:
     provider = GroqProvider(api_key="k")
     _mock(provider, handler)
     assert provider.complete([ChatMessage(role="user", content="q")]) == "respuesta"
+
+
+def test_openrouter_parses_completion() -> None:
+    """OpenRouterProvider extracts text and sends auth + ranking headers."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer k"
+        assert request.headers["x-title"] == "BOE RAG Assistant"
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": "respuesta"}}]}
+        )
+
+    provider = OpenRouterProvider(api_key="k")
+    _mock(provider, handler)
+    assert provider.complete([ChatMessage(role="user", content="q")]) == "respuesta"
+
+
+def test_openrouter_missing_api_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Constructing OpenRouterProvider without a key is an error."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    with pytest.raises(LLMError, match="OPENROUTER_API_KEY"):
+        OpenRouterProvider()
+
+
+def test_openrouter_model_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OPENROUTER_MODEL overrides the default model when none is passed."""
+    monkeypatch.setenv("OPENROUTER_MODEL", "deepseek/deepseek-chat:free")
+    assert (
+        OpenRouterProvider(api_key="k").name == "openrouter:deepseek/deepseek-chat:free"
+    )
+    # An explicit argument still wins over the environment.
+    assert OpenRouterProvider(api_key="k", model="other").name == "openrouter:other"
 
 
 def test_provider_retries_then_succeeds() -> None:
@@ -239,9 +274,21 @@ def test_fallback_retries_provider_after_cooldown() -> None:
 def test_build_available_providers_skips_missing_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only providers with a configured key are constructed."""
+    """Only providers with a configured key are constructed, in preference order."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setenv("GROQ_API_KEY", "k")
     providers = build_available_providers()
     assert [p.name.split(":")[0] for p in providers] == ["groq"]
+
+
+def test_build_available_providers_prefers_openrouter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With all keys present, OpenRouter leads the fallback chain."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    providers = build_available_providers()
+    assert [p.name.split(":")[0] for p in providers] == ["openrouter", "gemini", "groq"]

@@ -99,15 +99,17 @@ or trivial questions, and keeps only answers the LLM-judge rates faithful to the
 them, so the two tiers are reported separately and the gold set stays the source of truth.
 
 ```bash
-$env:GROQ_API_KEY = "..."   # Groq recommended; Gemini's free tier rate-limits hard
-$env:GROQ_MODEL = "llama-3.1-8b-instant"   # bigger free daily-token budget for bulk jobs
+$env:OPENROUTER_API_KEY = "..."   # preferred: ~1000 free calls/day on `:free` models
+$env:OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free"   # any free model
 python scripts/generate_evalset.py --corpus data/corpus/boe-2024.parquet \
     --out eval_data/generated_evalset.jsonl --limit 150
 ```
 
-The generator survives free-tier limits: it waits out rate-limit cool-downs and retries,
-and always saves what it has collected. `GROQ_MODEL`/`GEMINI_MODEL` select the model;
-`--no-validate` halves token usage by skipping the faithfulness filter.
+Any one of `OPENROUTER_API_KEY`, `GROQ_API_KEY`, or `GEMINI_API_KEY` works (tried in that
+order; whichever has a key leads, and the chain falls through on rate limits). The generator
+survives free-tier limits: it waits out cool-downs and retries, and always saves what it has
+collected. `OPENROUTER_MODEL`/`GROQ_MODEL`/`GEMINI_MODEL` select the model; `--no-validate`
+halves token usage by skipping the faithfulness filter.
 
 **Baseline** — `intfloat/multilingual-e5-small`, dense-only retrieval, 2024 corpus
 (2,225 chunks, 20 questions), the "before" picture every later change is measured against:
@@ -237,7 +239,7 @@ fake engine (no models or API keys in CI). Endpoints:
 
 ```bash
 pip install -e ".[api,ml]"             # service + embedding/rerank models
-$env:GROQ_API_KEY = "..."              # at least one LLM key for /ask
+$env:OPENROUTER_API_KEY = "..."        # at least one LLM key for /ask (or GROQ/GEMINI)
 uvicorn boe_rag.service.app:app --port 8000
 # → http://localhost:8000/docs  (interactive OpenAPI UI)
 ```
@@ -253,7 +255,7 @@ passages instead of failing, and `/search` keeps working without an LLM.
 
 ```bash
 pip install -e ".[api,ml,ui]"          # adds Gradio
-$env:GROQ_API_KEY = "..."
+$env:OPENROUTER_API_KEY = "..."        # or GROQ_API_KEY / GEMINI_API_KEY
 uvicorn boe_rag.service.app:app --port 8000
 # → http://localhost:8000/        (chat UI)
 # → http://localhost:8000/docs    (OpenAPI)
@@ -279,12 +281,13 @@ stale, so a mismatched file can never serve wrong results). Pushes to `main` are
 mirrored to the Space by [`.github/workflows/deploy-space.yml`](.github/workflows/deploy-space.yml),
 which swaps in the Space card ([`deploy/space/README.md`](deploy/space/README.md))
 as the Space README and force-pushes; the Space then rebuilds the image. The only
-runtime secret is `GROQ_API_KEY`, set in the Space settings.
+runtime secret is an LLM key — `OPENROUTER_API_KEY` (preferred), `GROQ_API_KEY`, or
+`GEMINI_API_KEY` — set in the Space settings.
 
 ```bash
 # Build and run the production image locally (mirrors the Space):
 docker build -t boe-rag .
-docker run --rm -p 7860:7860 -e GROQ_API_KEY="..." boe-rag
+docker run --rm -p 7860:7860 -e OPENROUTER_API_KEY="..." boe-rag
 # → http://localhost:7860/
 ```
 
