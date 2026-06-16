@@ -100,7 +100,8 @@ them, so the two tiers are reported separately and the gold set stays the source
 
 ```bash
 $env:OPENROUTER_API_KEY = "..."   # preferred: ~1000 free calls/day on `:free` models
-$env:OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free"   # any free model
+# Optional: a comma-separated fallback chain (OpenRouter routes around a busy model):
+$env:OPENROUTER_MODEL = "qwen/qwen3-next-80b-a3b-instruct:free,openai/gpt-oss-120b:free"
 python scripts/generate_evalset.py --corpus data/corpus/boe-2024.parquet \
     --out eval_data/generated_evalset.jsonl --limit 150
 ```

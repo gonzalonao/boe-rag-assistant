@@ -30,6 +30,8 @@ _RETRYABLE_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 _RATE_LIMIT_STATUS = 429
 #: Cap on how long we honour a server's ``Retry-After`` before giving up.
 _MAX_RETRY_AFTER_SECONDS = 30.0
+#: How much of an error response body to surface in the raised exception.
+_MAX_BODY_CHARS = 300
 
 _FALLBACK_WAIT = wait_exponential(multiplier=0.5, max=8.0)
 
@@ -40,13 +42,18 @@ class _RetryableHTTPError(RuntimeError):
     Attributes:
         status_code: The HTTP status that triggered the retry.
         retry_after: Server-requested delay in seconds, if any.
+        body: The (truncated) response body, kept so the final raised error can
+            surface the provider's own explanation (e.g. why it returned 429).
     """
 
-    def __init__(self, status_code: int, retry_after: float | None) -> None:
-        """Capture the status code and any ``Retry-After`` hint."""
+    def __init__(
+        self, status_code: int, retry_after: float | None, body: str = ""
+    ) -> None:
+        """Capture the status code, any ``Retry-After`` hint, and the body."""
         super().__init__(f"returned {status_code}")
         self.status_code = status_code
         self.retry_after = retry_after
+        self.body = body
 
 
 def _parse_retry_after(value: str | None) -> float | None:
@@ -111,7 +118,9 @@ def post_json_with_retry(
         response = client.post(url, json=json, headers=headers, timeout=timeout)
         if response.status_code in _RETRYABLE_STATUS:
             retry_after = _parse_retry_after(response.headers.get("retry-after"))
-            raise _RetryableHTTPError(response.status_code, retry_after)
+            raise _RetryableHTTPError(
+                response.status_code, retry_after, response.text[:_MAX_BODY_CHARS]
+            )
         if response.status_code >= 400:
             raise LLMError(
                 f"{url} returned {response.status_code}: {response.text[:200]}"
@@ -122,8 +131,9 @@ def post_json_with_retry(
     try:
         return _call()
     except _RetryableHTTPError as err:
+        detail = f": {err.body}" if err.body else ""
         if err.status_code == _RATE_LIMIT_STATUS:
-            raise LLMRateLimitError(f"{url} rate-limited (HTTP 429)") from err
-        raise LLMError(f"{url} returned {err.status_code}") from err
+            raise LLMRateLimitError(f"{url} rate-limited (HTTP 429){detail}") from err
+        raise LLMError(f"{url} returned {err.status_code}{detail}") from err
     except httpx.HTTPError as err:
         raise LLMError(f"request to {url} failed: {err}") from err
