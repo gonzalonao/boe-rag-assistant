@@ -1,12 +1,14 @@
 name: Deploy to Hugging Face Space
 
-# Mirrors `main` to the Hugging Face Space on every push. The Space then builds
-# the Dockerfile and serves the demo. Requires an `HF_TOKEN` repository secret
-# (a Hugging Face write token); the Space's own `GROQ_API_KEY` is set in the
-# Space settings, not here.
+# Mirrors the repo to the Hugging Face Space on each version tag (vMAJOR.MINOR.PATCH),
+# so every deployment is a tagged release. The Space then builds the Dockerfile and
+# serves the demo. Requires an `HF_TOKEN` repository secret (a Hugging Face write
+# token); the Space's own LLM key (OPENROUTER_API_KEY / GROQ_API_KEY / GEMINI_API_KEY)
+# is set in the Space settings, not here. `workflow_dispatch` allows a manual re-sync.
 on:
   push:
-    branches: [main]
+    tags:
+      - "v*"
   workflow_dispatch:
 
 jobs:
