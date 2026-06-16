@@ -11,6 +11,7 @@ Reads the API key from ``OPENROUTER_API_KEY`` unless one is passed explicitly.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Sequence
 from typing import Any
@@ -20,7 +21,12 @@ import httpx
 from boe_rag.llm._http import post_json_with_retry
 from boe_rag.llm.base import ChatMessage, LLMError
 
+logger = logging.getLogger(__name__)
+
 _URL = "https://openrouter.ai/api/v1/chat/completions"
+
+#: OpenRouter caps the ``models`` fallback array at three entries.
+_MAX_MODELS = 3
 
 #: Default free model chain, tried in order via OpenRouter's ``models`` fallback
 #: routing so a single congested free endpoint ("rate-limited upstream") does not
@@ -29,9 +35,8 @@ _URL = "https://openrouter.ai/api/v1/chat/completions"
 #: https://openrouter.ai/models?max_price=0.
 DEFAULT_OPENROUTER_MODEL = (
     "qwen/qwen3-next-80b-a3b-instruct:free,"
-    "nvidia/nemotron-3-super-120b-a12b:free,"
     "openai/gpt-oss-120b:free,"
-    "meta-llama/llama-3.3-70b-instruct:free"
+    "nvidia/nemotron-3-super-120b-a12b:free"
 )
 
 #: Sent as OpenRouter's optional ranking headers; harmless and identifies the app.
@@ -47,7 +52,8 @@ class OpenRouterProvider:
         model: One or more OpenRouter model ids; falls back to ``OPENROUTER_MODEL``
             then the default chain. A comma-separated value becomes a fallback
             chain (OpenRouter routes to the next when one is unavailable or
-            rate-limited). Append ``:free`` to use a model's free variant.
+            rate-limited); at most three are sent, extras are dropped with a
+            warning. Append ``:free`` to use a model's free variant.
         timeout: Per-request timeout in seconds.
 
     Raises:
@@ -67,9 +73,17 @@ class OpenRouterProvider:
             raise LLMError("OpenRouter API key not found; set OPENROUTER_API_KEY.")
         self._key = key
         raw = model or os.environ.get("OPENROUTER_MODEL") or DEFAULT_OPENROUTER_MODEL
-        self._models = [m.strip() for m in raw.split(",") if m.strip()]
-        if not self._models:
+        parsed = [m.strip() for m in raw.split(",") if m.strip()]
+        if not parsed:
             raise LLMError("OPENROUTER_MODEL resolved to no model ids.")
+        if len(parsed) > _MAX_MODELS:
+            logger.warning(
+                "OpenRouter accepts at most %d models; using the first %d of %d.",
+                _MAX_MODELS,
+                _MAX_MODELS,
+                len(parsed),
+            )
+        self._models = parsed[:_MAX_MODELS]
         self._timeout = timeout
         self._client = httpx.Client(timeout=timeout)
 

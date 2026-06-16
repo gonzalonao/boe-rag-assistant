@@ -122,6 +122,22 @@ def test_openrouter_fallback_chain_sent_as_models_array() -> None:
     assert provider.name == "openrouter:a:free (+2 fallbacks)"
 
 
+def test_openrouter_caps_models_at_three() -> None:
+    """More than three model ids are truncated to OpenRouter's array limit."""
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    provider = OpenRouterProvider(api_key="k", model="a,b,c,d,e")
+    _mock(provider, handler)
+    provider.complete([ChatMessage(role="user", content="q")])
+    assert seen["models"] == ["a", "b", "c"]
+
+
 def test_openrouter_single_model_omits_models_array() -> None:
     """A single model id does not add the `models` array to the request."""
     seen: dict[str, object] = {}
