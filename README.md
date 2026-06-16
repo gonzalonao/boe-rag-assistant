@@ -10,9 +10,12 @@ against a curated golden dataset before it ships.
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![Live demo](https://img.shields.io/badge/%F0%9F%A4%97%20demo-Hugging%20Face%20Space-yellow)](https://huggingface.co/spaces/gonzalonao/boe-rag-assistant)
 
-**Tech stack:** Python · Qdrant (hybrid dense + BM25 retrieval) · sentence-transformers ·
-ONNX Runtime · FastAPI · Gradio · Hugging Face Hub (datasets, models, Spaces) · RAGAS ·
-Langfuse · GitHub Actions
+**Tech stack (built):** Python · sentence-transformers (multilingual-E5 + cross-encoder) ·
+NumPy in-memory hybrid index (dense + BM25/RRF) · FastAPI · Gradio · Docker ·
+Hugging Face Hub (datasets, models, Spaces) · GitHub Actions
+
+**Planned:** Qdrant (vector store at full-corpus scale) · ONNX Runtime (int8 reranker) ·
+fine-tuned Spanish embedding model · RAGAS (eval metrics) · Langfuse (request tracing)
 
 ## Why this project
 
@@ -33,9 +36,14 @@ daily-updated Spanish legal corpus and treats retrieval quality as an engineerin
 BOE Open Data API ─▶ ingestion ─▶ structure-aware chunking ─▶ HF dataset (corpus)
    (sumario+XML)       │ client·parser·chunker                       │
                        │                                             ▼
-                       └────────────▶ hybrid index (Qdrant: dense + BM25)
-query ─▶ hybrid retrieval ─▶ rerank (ONNX cross-encoder) ─▶ grounded generation ─▶ cited answer
+                       └────────────▶ in-memory hybrid index (dense E5 + BM25)
+query ─▶ hybrid retrieval ─▶ rerank (cross-encoder) ─▶ grounded generation ─▶ cited answer
 ```
+
+> The index is in-memory (NumPy) and the rerank model runs under sentence-transformers —
+> a deliberate fit for the current 2,225-chunk corpus on free CPU hardware. The planned
+> scale-up swaps in a **Qdrant** store (full-corpus, on-disk) and an **ONNX int8** reranker
+> (see the roadmap).
 
 ### Ingestion pipeline (Phase 1)
 
@@ -144,7 +152,8 @@ python scripts/run_retrieval_ablation.py --corpus data/corpus/boe-2024.parquet \
 
 A bi-encoder scores query and passage independently; a **cross-encoder** reads them together
 and judges relevance directly — far sharper, but too slow for the whole corpus. So it runs as
-a second stage (`src/boe_rag/eval/rerank.py`): hybrid retrieves a 30-candidate pool, then
+a second stage (the `RerankingRetriever` in `src/boe_rag/eval/rerank.py`, wrapping the
+`CrossEncoderReranker` in `cross_encoder.py`): hybrid retrieves a 30-candidate pool, then
 `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` reorders it (~1.5 s/query on CPU).
 
 | Retriever | Recall@10 | Precision@10 | Hit rate@10 | MRR | nDCG@10 |
