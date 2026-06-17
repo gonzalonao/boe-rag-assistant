@@ -1,0 +1,43 @@
+name: Deploy to Hugging Face Space
+
+# Mirrors the repo to the Hugging Face Space on each version tag (vMAJOR.MINOR.PATCH),
+# so every deployment is a tagged release. The Space then builds the Dockerfile and
+# serves the demo. Requires an `HF_TOKEN` repository secret (a Hugging Face write
+# token); the Space's own LLM key (OPENROUTER_API_KEY / GROQ_API_KEY / GEMINI_API_KEY)
+# is set in the Space settings, not here. `workflow_dispatch` allows a manual re-sync.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # Skip on forks, which won't have the secret.
+    if: github.repository == 'gonzalonao/boe-rag-assistant'
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      SPACE_ID: gonzalonao/boe-rag-assistant
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify HF token is configured
+        run: |
+          if [ -z "${HF_TOKEN}" ]; then
+            echo "::error::HF_TOKEN secret is not set; add it in repo Settings → Secrets."
+            exit 1
+          fi
+
+      - name: Use the Space card as the README
+        run: cp deploy/space/README.md README.md
+
+      - name: Push to the Hugging Face Space
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "chore: sync to Hugging Face Space" || echo "Nothing to commit."
+          git push --force "https://gonzalonao:${HF_TOKEN}@huggingface.co/spaces/${SPACE_ID}.git" HEAD:main

@@ -1,0 +1,165 @@
+"""Baseline dense retriever.
+
+The Phase 2 baseline: embed every chunk with an off-the-shelf multilingual
+model and rank by cosine similarity — no hybrid search, no reranking. It is the
+"before" picture every later retrieval improvement is measured against.
+
+The embedding model is injected behind the :class:`Embedder` protocol so the
+ranking logic can be unit-tested with a trivial fake embedder, keeping the heavy
+``sentence-transformers``/``torch`` dependency out of CI.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Protocol
+
+import numpy as np
+import numpy.typing as npt
+
+#: A matrix of L2-normalised row vectors.
+FloatMatrix = npt.NDArray[np.float32]
+
+
+def save_embeddings(path: Path, chunk_ids: Sequence[str], matrix: FloatMatrix) -> None:
+    """Persist precomputed passage embeddings to a compressed ``.npz`` file.
+
+    The saved file pairs each chunk id with its row in ``matrix`` so the index
+    can be rebuilt at serving time without re-encoding the corpus.
+
+    Args:
+        path: Destination ``.npz`` path (parent directories are created).
+        chunk_ids: Stable chunk ids, aligned row-for-row with ``matrix``.
+        matrix: One L2-normalised embedding per chunk.
+
+    Raises:
+        ValueError: If the number of ids and rows differ.
+    """
+    if len(chunk_ids) != matrix.shape[0]:
+        raise ValueError("chunk_ids and matrix rows must have the same length")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        path,
+        chunk_ids=np.asarray(list(chunk_ids), dtype=object),
+        matrix=np.asarray(matrix, dtype=np.float32),
+    )
+
+
+def load_embeddings(path: Path) -> tuple[list[str], FloatMatrix]:
+    """Load precomputed passage embeddings saved by :func:`save_embeddings`.
+
+    Args:
+        path: Path to the ``.npz`` file.
+
+    Returns:
+        The chunk ids and their embedding matrix.
+    """
+    with np.load(path, allow_pickle=True) as data:
+        chunk_ids = [str(cid) for cid in data["chunk_ids"]]
+        matrix = np.asarray(data["matrix"], dtype=np.float32)
+    return chunk_ids, matrix
+
+
+class Searcher(Protocol):
+    """Anything that ranks corpus chunks for a query.
+
+    The common interface shared by the dense, sparse, and hybrid retrievers so
+    the eval runner can score any of them interchangeably.
+    """
+
+    def search(self, query: str, k: int = 10) -> list[tuple[str, float]]:
+        """Return up to ``k`` ``(chunk_id, score)`` pairs, highest score first."""
+        ...
+
+
+class Embedder(Protocol):
+    """Turns text into L2-normalised embedding vectors.
+
+    Implementations must return one row per input text. Queries and passages
+    are embedded via separate methods because some models (e.g. E5) require
+    different prefixes for each.
+    """
+
+    def embed_passages(self, texts: Sequence[str]) -> FloatMatrix:
+        """Embed documents/passages to be indexed."""
+        ...
+
+    def embed_queries(self, texts: Sequence[str]) -> FloatMatrix:
+        """Embed search queries."""
+        ...
+
+
+class DenseRetriever:
+    """In-memory dense retriever using cosine similarity over chunk embeddings.
+
+    Args:
+        embedder: The embedder used for both indexing and querying.
+    """
+
+    def __init__(self, embedder: Embedder) -> None:
+        """Create an empty retriever bound to ``embedder``."""
+        self._embedder = embedder
+        self._chunk_ids: list[str] = []
+        self._matrix: FloatMatrix | None = None
+
+    def index(self, chunk_ids: Sequence[str], texts: Sequence[str]) -> None:
+        """Embed and store the corpus.
+
+        Args:
+            chunk_ids: Stable ids, aligned with ``texts``.
+            texts: Chunk texts to embed and index.
+
+        Raises:
+            ValueError: If the inputs are empty or of unequal length.
+        """
+        if len(chunk_ids) != len(texts):
+            raise ValueError("chunk_ids and texts must have the same length")
+        if not chunk_ids:
+            raise ValueError("cannot index an empty corpus")
+        self._chunk_ids = list(chunk_ids)
+        self._matrix = self._embedder.embed_passages(list(texts))
+
+    def index_precomputed(self, chunk_ids: Sequence[str], matrix: FloatMatrix) -> None:
+        """Load a precomputed passage-embedding matrix instead of encoding.
+
+        Used at serving time to skip re-embedding the whole corpus: the matrix
+        must come from the same embedder this retriever queries with. The
+        embedder is still used for query encoding at search time.
+
+        Args:
+            chunk_ids: Stable ids, aligned row-for-row with ``matrix``.
+            matrix: One L2-normalised embedding per chunk.
+
+        Raises:
+            ValueError: If the inputs are empty or of unequal length.
+        """
+        if len(chunk_ids) != matrix.shape[0]:
+            raise ValueError("chunk_ids and matrix rows must have the same length")
+        if not chunk_ids:
+            raise ValueError("cannot index an empty corpus")
+        self._chunk_ids = list(chunk_ids)
+        self._matrix = np.asarray(matrix, dtype=np.float32)
+
+    def search(self, query: str, k: int = 10) -> list[tuple[str, float]]:
+        """Return the top-k chunk ids and similarity scores for a query.
+
+        Args:
+            query: The search query.
+            k: Maximum number of results to return.
+
+        Returns:
+            Up to ``k`` ``(chunk_id, score)`` pairs, highest score first.
+
+        Raises:
+            RuntimeError: If called before :meth:`index`.
+        """
+        if self._matrix is None:
+            raise RuntimeError("call index() before search()")
+        query_vec = self._embedder.embed_queries([query])[0]
+        scores = self._matrix @ query_vec
+        top_k = min(k, len(self._chunk_ids))
+        # argpartition for the top-k, then sort just those by score descending.
+        top_idx = np.argpartition(-scores, top_k - 1)[:top_k]
+        top_idx = top_idx[np.argsort(-scores[top_idx])]
+        return [(self._chunk_ids[i], float(scores[i])) for i in top_idx]
