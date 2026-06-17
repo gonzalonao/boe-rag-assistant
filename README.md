@@ -45,6 +45,23 @@ query ─▶ hybrid retrieval ─▶ rerank (cross-encoder) ─▶ grounded gene
 > scale-up swaps in a **Qdrant** store (full-corpus, on-disk) and an **ONNX int8** reranker
 > (see the roadmap).
 
+### Extending the pipeline
+
+The query engine (`RagEngine`) depends only on small protocols, so each planned
+optimization is a drop-in implementation rather than a rewrite:
+
+| Seam | Protocol | Current implementation | Planned swap |
+|---|---|---|---|
+| Retrieval | `Searcher` (`eval/retriever.py`) | in-memory dense E5 + BM25, RRF fusion | Qdrant store (dense + sparse, on-disk) |
+| Query encoding | `Embedder` (`eval/retriever.py`) | off-the-shelf `multilingual-e5-small` | fine-tuned E5, ONNX int8 |
+| Reranking | `Reranker` (`eval/rerank.py`) | sentence-transformers cross-encoder | ONNX int8 cross-encoder |
+| Generation | `LLMProvider` (`llm/base.py`) | OpenRouter → Groq → Gemini fallback chain | any OpenAI-compatible provider |
+| Observability | `Tracer` (`service/tracing.py`) | no-op (zero overhead) | Langfuse per-stage spans |
+
+`build_engine` (`service/app.py`) wires the concrete implementations together;
+swapping one is a constructor change, and the unit tests exercise the engine with
+fakes for every seam — no models or API keys in CI.
+
 ### Ingestion pipeline (Phase 1)
 
 The ingestion layer (`src/boe_rag/ingest/`) turns the BOE Open Data API into a
