@@ -1,0 +1,11 @@
+{
+  "description": "Retrieval regression baseline for the CI eval-gate. Dense E5 retrieval (run_eval.py) on the gold seed eval set over the published corpus. A pull request fails when a guarded metric drops more than its tolerance below the baseline. Regenerate these numbers deliberately whenever an intended change (e.g. corpus expansion or an embedding swap) moves them: run scripts/run_eval.py on the gold set and update the baselines below.",
+  "evalset": "eval_data/seed_evalset.jsonl",
+  "corpus": "gonzalonao/boe-corpus (data/corpus/boe-2024.parquet)",
+  "model": "intfloat/multilingual-e5-small",
+  "k": 10,
+  "guards": {
+    "recall_at_k": { "baseline": 0.9, "tolerance": 0.05 },
+    "mrr": { "baseline": 0.749, "tolerance": 0.05 }
+  }
+}

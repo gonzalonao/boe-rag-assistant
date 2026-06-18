@@ -108,6 +108,11 @@ each mapped to the chunk that answers it. Metrics (recall@k, precision@k, hit ra
 nDCG) are pure-Python and run in CI; the retrieval run uses an off-the-shelf embedding
 model and is reproducible locally.
 
+A **CI eval-gate** turns this into a regression guard: every pull request re-runs the
+gold-set retrieval evaluation and fails if recall@10 or MRR drops more than a small
+tolerance below the committed baseline ([`eval_data/retrieval_baseline.json`](eval_data/retrieval_baseline.json)),
+so a change can't silently degrade retrieval quality.
+
 **Two tiers of questions.** The 20 hand-curated questions are the trusted *gold* set. To
 scale measurement, `scripts/generate_evalset.py` produces a larger *silver* set: it prompts
 an LLM to write a self-contained question + answer grounded in a sampled chunk, drops deictic
