@@ -121,6 +121,11 @@ or trivial questions, and keeps only answers the LLM-judge rates faithful to the
 (`src/boe_rag/eval/generate.py`). Synthetic questions can flatter the system that generated
 them, so the two tiers are reported separately and the gold set stays the source of truth.
 
+Both tiers are published on the Hub as
+[`gonzalonao/boe-rag-evalset`](https://huggingface.co/datasets/gonzalonao/boe-rag-evalset)
+(1,749 silver + 20 gold QA pairs, validated against the corpus). On the silver split,
+dense retrieval (e5-small, k=10) scores recall@10 0.963 / MRR 0.827.
+
 ```bash
 $env:OPENROUTER_API_KEY = "..."   # preferred: ~1000 free calls/day on `:free` models
 # Optional: a comma-separated fallback chain (OpenRouter routes around a busy model):
