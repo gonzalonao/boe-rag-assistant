@@ -41,6 +41,7 @@ class _FakeLangfuseClient:
     def __init__(self) -> None:
         self.opened: list[tuple[str, object]] = []
         self.handles: list[_FakeLangfuseSpan] = []
+        self.trace_names: list[str] = []
 
     @contextmanager
     def start_as_current_span(
@@ -51,6 +52,10 @@ class _FakeLangfuseClient:
         self.opened.append((name, input))
         self.handles.append(handle)
         yield handle
+
+    def update_current_trace(self, *, name: str) -> None:
+        """Record the name set on the current trace."""
+        self.trace_names.append(name)
 
 
 def test_langfuse_tracer_is_a_tracer() -> None:
@@ -64,6 +69,22 @@ def test_span_records_name_and_inputs() -> None:
     with LangfuseTracer(client).span("retrieve", query="¿IVA?", k=5):
         pass
     assert client.opened == [("retrieve", {"query": "¿IVA?", "k": 5})]
+
+
+def test_span_with_query_names_the_trace() -> None:
+    """A stage carrying a query names the trace after it (searchable, clean tree)."""
+    client = _FakeLangfuseClient()
+    with LangfuseTracer(client).span("answer", query="¿IVA?", k=5):
+        pass
+    assert client.trace_names == ["¿IVA?"]
+
+
+def test_span_without_query_leaves_the_trace_name_unset() -> None:
+    """Stages without a query (e.g. generate) do not touch the trace name."""
+    client = _FakeLangfuseClient()
+    with LangfuseTracer(client).span("generate", contexts=3):
+        pass
+    assert client.trace_names == []
 
 
 def test_span_update_forwards_only_provided_fields() -> None:

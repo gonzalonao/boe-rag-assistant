@@ -20,7 +20,7 @@ import logging
 import os
 from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +112,10 @@ class _LangfuseClient(Protocol):
         """Open a Langfuse span as the current span and return it."""
         ...
 
+    def update_current_trace(self, *, name: str) -> None:
+        """Set attributes (here, the name) on the currently active trace."""
+        ...
+
 
 class _LangfuseSpan:
     """Adapts a Langfuse span to the :class:`Span` protocol."""
@@ -158,7 +162,26 @@ class LangfuseTracer:
         with self._client.start_as_current_span(
             name=name, input=dict(inputs)
         ) as handle:
+            self._name_trace_from_query(inputs)
             yield _LangfuseSpan(handle)
+
+    def _name_trace_from_query(self, inputs: Mapping[str, object]) -> None:
+        """Name the trace after the user's question, when one is present.
+
+        Without this the trace inherits the root span's name (``"answer"``),
+        which Langfuse then shows stacked above an identically named span. Naming
+        the trace after the ``query`` makes the tree read cleanly and, more
+        usefully, makes traces searchable by question in the dashboard. Every
+        stage that carries the query sets the same value, so the call is
+        idempotent within a trace.
+        """
+        query = inputs.get("query")
+        if not isinstance(query, str):
+            return
+        try:
+            self._client.update_current_trace(name=query)
+        except (AttributeError, TypeError):  # defensive: tolerate Langfuse SDK drift
+            logger.debug("Could not set the Langfuse trace name.", exc_info=True)
 
 
 def build_tracer() -> Tracer:
@@ -186,4 +209,6 @@ def build_tracer() -> Tracer:
         )
         return NoOpTracer()
     logger.info("Langfuse keys detected; enabling tracing.")
-    return LangfuseTracer(Langfuse())
+    # The real client's typed surface is far richer than the slice we call;
+    # cast it to that slice (see _LangfuseClient) rather than relax it here.
+    return LangfuseTracer(cast("_LangfuseClient", Langfuse()))
