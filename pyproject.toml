@@ -47,6 +47,12 @@ api = [
 ui = [
     "gradio==5.50.0",
 ]
+# Optional observability: export per-stage pipeline spans to Langfuse. Off by
+# default (NoOpTracer); enabled only when the LANGFUSE_* env vars are set. Kept
+# to the OpenTelemetry-based v3 line, which the tracing adapter targets.
+obs = [
+    "langfuse>=3.0.0,<4.0.0",
+]
 
 [project.scripts]
 boe-ingest = "boe_rag.ingest.__main__:main"
@@ -92,9 +98,9 @@ files = ["src/boe_rag", "tests"]
 warn_unreachable = true
 pretty = true
 
-# Optional `ml`/`ui` extras: untyped and not installed in the default/CI env.
+# Optional `ml`/`ui`/`obs` extras: untyped and not installed in the default/CI env.
 [[tool.mypy.overrides]]
-module = ["sentence_transformers.*", "gradio.*"]
+module = ["sentence_transformers.*", "gradio.*", "langfuse.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

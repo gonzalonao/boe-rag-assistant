@@ -56,7 +56,7 @@ optimization is a drop-in implementation rather than a rewrite:
 | Query encoding | `Embedder` (`eval/retriever.py`) | off-the-shelf `multilingual-e5-small` | fine-tuned E5, ONNX int8 |
 | Reranking | `Reranker` (`eval/rerank.py`) | sentence-transformers cross-encoder | ONNX int8 cross-encoder |
 | Generation | `LLMProvider` (`llm/base.py`) | OpenRouter → Groq → Gemini fallback chain | any OpenAI-compatible provider |
-| Observability | `Tracer` (`service/tracing.py`) | no-op (zero overhead) | Langfuse per-stage spans |
+| Observability | `Tracer` (`service/tracing.py`) | no-op by default; **Langfuse per-stage spans** when `LANGFUSE_*` is set | hosted dashboards, eval scoring |
 
 `build_engine` (`service/app.py`) wires the concrete implementations together;
 swapping one is a constructor change, and the unit tests exercise the engine with
@@ -98,7 +98,8 @@ python scripts/push_corpus_to_hub.py \
 - [ ] **Phase 5** — Grounded generation with citation validation
 - [x] **Phase 6** — Serving: FastAPI service (`/ask`, `/search`, `/health`) + Gradio demo UI
   (chat with linked citations + a Quality tab) + containerised Hugging Face Space deployment
-- [ ] **Phase 7** — Scheduled incremental ingestion + observability
+- [ ] **Phase 7** — Scheduled incremental ingestion + observability (Langfuse tracing
+  wired via the `Tracer` seam; scheduled ingestion pending)
 
 ## Evaluation (Phase 2)
 
