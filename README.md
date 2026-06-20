@@ -12,10 +12,36 @@ against a curated golden dataset before it ships.
 
 **Tech stack (built):** Python · sentence-transformers (multilingual-E5 + cross-encoder) ·
 NumPy in-memory hybrid index (dense + BM25/RRF) · FastAPI · Gradio · Docker ·
-Hugging Face Hub (datasets, models, Spaces) · GitHub Actions
+Hugging Face Hub (datasets, models, Spaces) · Langfuse (opt-in tracing) · GitHub Actions
 
 **Planned:** Qdrant (vector store at full-corpus scale) · ONNX Runtime (int8 reranker) ·
-fine-tuned Spanish embedding model · RAGAS (eval metrics) · Langfuse (request tracing)
+fine-tuned Spanish embedding model · RAGAS (eval metrics)
+
+## Demo
+
+[**▶ Try the live demo**](https://huggingface.co/spaces/gonzalonao/boe-rag-assistant) — ask a
+question about Spanish law in natural language and get an answer with citations linked back to
+boe.es (or an honest refusal when the corpus doesn't cover it).
+
+<!-- To embed the demo recording: add docs/media/demo.gif (see docs/media/README.md) and
+     uncomment the next line.
+![BOE RAG Assistant demo](docs/media/demo.gif)
+-->
+
+### Results at a glance
+
+Retrieval on the 20-question golden set (2024 corpus, 2,225 chunks) — every stage measured
+before it shipped:
+
+| Stage | Recall@10 | MRR | nDCG@10 |
+|---|---|---|---|
+| Dense baseline (`multilingual-e5-small`) | 0.900 | 0.749 | 0.783 |
+| + Hybrid (BM25 · RRF fusion) | 0.900 | 0.763 | 0.793 |
+| **+ Cross-encoder rerank** | **1.000** | **0.888** | **0.913** |
+
+End-to-end answer quality (cite-or-refuse generation, scored by an LLM-as-judge):
+**faithfulness 0.990 · correctness 0.895 · refusal rate 0.050**. Full methodology, per-stage
+tables, and reproduction commands in [Evaluation](#evaluation-phase-2).
 
 ## Why this project
 
@@ -44,6 +70,9 @@ query ─▶ hybrid retrieval ─▶ rerank (cross-encoder) ─▶ grounded gene
 > a deliberate fit for the current 2,225-chunk corpus on free CPU hardware. The planned
 > scale-up swaps in a **Qdrant** store (full-corpus, on-disk) and an **ONNX int8** reranker
 > (see the roadmap).
+
+For the full rationale — design principles, trade-offs, and the decisions log — see
+[`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Extending the pipeline
 
@@ -320,6 +349,30 @@ docker build -t boe-rag .
 docker run --rm -p 7860:7860 -e OPENROUTER_API_KEY="..." boe-rag
 # → http://localhost:7860/
 ```
+
+## Observability (Phase 6)
+
+Each pipeline stage (`answer → retrieve → rerank → generate`) is instrumented behind a
+`Tracer` protocol. By default it is a **no-op** — zero overhead, zero dependencies. Set
+`LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` (and install the `obs` extra) and the same
+spans are exported to **Langfuse**, where each request appears as a nested trace named after
+the question, with per-stage latency, inputs, and outputs:
+
+<!-- Add docs/media/langfuse-trace.png (see docs/media/README.md) and uncomment:
+![Langfuse trace of a single request](docs/media/langfuse-trace.png)
+-->
+
+```bash
+pip install -e ".[api,ml,ui,obs]"
+$env:LANGFUSE_PUBLIC_KEY = "pk-lf-..."
+$env:LANGFUSE_SECRET_KEY = "sk-lf-..."
+$env:LANGFUSE_HOST = "https://cloud.langfuse.com"   # or your self-hosted instance
+uvicorn boe_rag.service.app:app
+```
+
+The adapter ([`service/tracing.py`](src/boe_rag/service/tracing.py)) is unit-tested with a
+fake client, so the heavy dependency and the network egress stay out of CI and the default
+serving path. (Quality *scores* — LLM-judge faithfulness, 👍/👎 — are a planned follow-up.)
 
 ## Getting started
 

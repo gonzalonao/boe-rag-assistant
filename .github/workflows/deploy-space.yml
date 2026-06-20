@@ -20,7 +20,7 @@ jobs:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       SPACE_ID: gonzalonao/boe-rag-assistant
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
