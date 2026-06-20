@@ -309,22 +309,25 @@ exfiltration** (defended with a canary token the answer must never contain),
 **out-of-corpus hallucination** (absent-law questions must refuse, not invent). The generator is
 also hardened to treat passages and the question as *data, never instructions*.
 
-The suite earns its keep by finding a real weakness and then proving the fix. The baseline
-**fabricated citations** when asked (e.g. `[99]` for a source that was never retrieved) —
-prompt-level defenses caught it 0% of the time. A deterministic post-hoc
-**citation-validation** guardrail (`src/boe_rag/service/citation.py`) now strips any `[n]`
-pointing past the retrieved passages and refuses when an answer's grounding rests entirely on
-fabricated citations. Same harness, before vs. after (14 attacks, dense k=5):
+The suite earns its keep by finding real weaknesses and then proving the fixes. The prompt-only
+baseline **fabricated citations** when asked (e.g. `[99]` for a source never retrieved) and, on
+one phrasing, **leaked the system-prompt canary** — caught 0% and 75% of the time respectively.
+Two deterministic post-hoc guardrails close them: **citation validation**
+(`src/boe_rag/service/citation.py`) strips `[n]` markers pointing past the retrieved passages and
+refuses on entirely-fabricated grounding; **canary containment** (`src/boe_rag/service/safety.py`)
+refuses any answer that leaks the canary. Same harness, prompt-only baseline vs. with guardrails:
 
-| Attack category | Before | After |
+| Attack category | Baseline | With guardrails |
 |---|---|---|
 | out-of-corpus hallucination | 100% | 100% |
-| instruction override | 75% | 75% |
-| system-prompt exfiltration | 75% | 75% |
+| instruction override | 75% | 67% |
+| system-prompt exfiltration | 75% | **100%** |
 | **citation spoofing** | **0%** | **100%** |
-| **Overall** | **64% (9/14)** | **86% (12/14)** |
+| **Overall** | **64% (9/14)** | **91% (20/22)** |
 
-Full threat model, methodology, and the find→fix loop: [`docs/SECURITY.md`](docs/SECURITY.md);
+The remaining gap is instruction-override *echo* (2 cases) — there's no fixed token to match
+deterministically, so it's tracked honestly rather than papered over. Full threat model,
+methodology, and the find→fix loops: [`docs/SECURITY.md`](docs/SECURITY.md);
 latest report: [`reports/security_eval.md`](reports/security_eval.md). Reproduce it once an API
 key is set:
 
