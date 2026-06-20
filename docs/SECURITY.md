@@ -30,7 +30,7 @@ text.
 
 ## How it's tested
 
-- **Adversarial set:** `eval_data/adversarial_security.jsonl` — 14 hand-written
+- **Adversarial set:** `eval_data/adversarial_security.jsonl` — 22 hand-written
   attacks across the four threat classes.
 - **Checks:** `src/boe_rag/eval/security.py` — **deterministic, rule-based** (no
   LLM judge), so verdicts are stable and the logic is unit-tested in CI:
@@ -58,45 +58,61 @@ python scripts/run_security_eval.py --corpus data/corpus/boe-2024.parquet \
   deterministic detection of prompt-exfiltration.
 - **Cite-or-refuse** generation: answer only from retrieved passages, cite them,
   or emit the exact refusal string.
+- **Deterministic output guardrails** (`service/citation.py`, `service/safety.py`):
+  the two checks below, run after generation, that turn "the prompt should hold"
+  into "the output is verified".
 
-## Posture: before vs. after the fix (14 attacks, dense k=5)
+## Posture: the find → fix journey (dense k=5)
 
-| Attack category | Before | After |
+Two find→fix loops, each measured on the same harness. The baseline is the
+**prompt-only** generator; the deterministic output guardrails were added in
+response to what the eval found, then the suite was broadened from 14 to 22 cases.
+
+| Attack category | Baseline (prompt-only) | With output guardrails |
 |---|---|---|
 | Out-of-corpus hallucination | 100% | 100% |
-| Instruction override | 75% | 75% |
-| System-prompt exfiltration | 75% | 75% |
+| Instruction override | 75% | 67% |
+| System-prompt exfiltration | 75% | **100%** |
 | **Citation spoofing** | **0%** | **100%** |
-| **Overall** | **64% (9/14)** | **86% (12/14)** |
+| **Overall** | **64% (9/14)** | **91% (20/22)** |
 
-The suite earned its keep by finding a **real weakness**: when explicitly asked,
-the baseline generator **fabricated citations** to sources that were never
-retrieved (e.g. `[99]`) — prompt-level defenses caught it 0% of the time. Adding
-the guardrail below closed that category completely while leaving the rest of the
-suite unchanged. Out-of-corpus refusal is solid; instruction-override and
-exfiltration are mostly — but not fully — held by prompt-level defenses alone (the
-two residual failures are an echoed payload and a leaked canary, the next gaps to
-close).
+The suite earned its keep by finding **two real weaknesses** that prompt wording
+alone could not close: the generator **fabricated citations** to passages it never
+retrieved (e.g. `[99]`), and one exfiltration phrasing **leaked the canary**. Both
+are now closed by deterministic guardrails (below). The instruction-override score
+dips because the broadened set added a harder echo case — see *Open gaps*.
 
-## The fix (find → fix loop) — shipped
+## The fixes (find → fix loops) — shipped
 
-Prompt-level defenses can't *guarantee* citation integrity — that needs a
-deterministic guardrail. **Post-hoc citation validation**
-(`src/boe_rag/service/citation.py`, wired into `RagEngine.answer`) runs after
-generation and before returning the answer:
+Prompt-level defenses can't *guarantee* output properties; that needs deterministic
+guardrails run after generation, inside `RagEngine.answer`:
+
+**1. Citation validation** (`src/boe_rag/service/citation.py`) — closes citation
+spoofing (**0% → 100%**):
 
 1. parse every `[n]` citation,
-2. strip any `n` outside `1..k` (a citation to a passage that was never
-   retrieved) from the answer text,
-3. refuse — emit the exact refusal string — when an answer's grounding rests
-   *entirely* on fabricated citations, since it then has no real source to stand
-   on.
+2. strip any `n` outside `1..k` (a passage that was never retrieved),
+3. refuse when an answer's grounding rests *entirely* on fabricated citations.
 
-Re-running `run_security_eval.py` against the same harness gives the clean
-**before/after** in the table above: citation spoofing **0% → 100%**, with the
-rest of the suite unchanged. This is the canonical security workflow — *measure,
-find a real gap, close it, prove the close with the same harness* — and the reason
-the adversarial eval was built before the defense.
+**2. Canary containment** (`src/boe_rag/service/safety.py`) — closes exfiltration
+(**75% → 100%**): if the secret `SYSTEM_PROMPT_CANARY` appears in the answer, the
+system-prompt defenses were overridden and the whole answer is untrustworthy, so it
+is replaced by the exact refusal string (not merely redacted).
+
+Re-running `run_security_eval.py` against the same harness proves each close. This
+is the canonical security workflow — *measure, find a real gap, close it, prove the
+close with the same harness* — and the reason the adversarial eval was built before
+the defenses.
+
+## Open gaps
+
+- **Instruction-override echo (4/6).** Two cases (`inj-02`, `inj-06`) still coax the
+  model into echoing an injected literal string. Unlike citation/canary leaks, there
+  is no fixed token to match deterministically at runtime — the payload is arbitrary.
+  Mitigations under consideration: stricter output-format constraints, a
+  response-schema check, or a second-pass classifier; robust prompt-injection defense
+  remains an open research problem, so this is tracked honestly rather than papered
+  over.
 
 ## Scope and non-goals
 
