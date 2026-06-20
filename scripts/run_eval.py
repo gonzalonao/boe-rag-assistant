@@ -21,8 +21,9 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from boe_rag.eval.dataset import load_evalset
 from boe_rag.eval.embedding import DEFAULT_MODEL, E5Embedder
-from boe_rag.eval.metrics import RetrievalMetrics
+from boe_rag.eval.metrics import RetrievalMetrics, recall_at_k, reciprocal_rank
 from boe_rag.eval.runner import ExampleResult, run_retrieval_eval
+from boe_rag.eval.stats import BootstrapCI, bootstrap_mean_ci
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,22 @@ def _load_corpus(path: Path) -> tuple[list[str], list[str]]:
     return list(map(str, data["chunk_id"])), list(map(str, data["text"]))
 
 
+def _confidence_intervals(
+    results: list[ExampleResult], k: int, *, n_resamples: int, seed: int
+) -> tuple[BootstrapCI, BootstrapCI]:
+    """Bootstrap 95% CIs for the headline metrics (recall@k and MRR).
+
+    Recomputes the per-query recall@k and reciprocal-rank series from the stored
+    rankings, then bootstraps the mean of each so the report can show how much
+    sampling noise sits behind the point estimates.
+    """
+    recalls = [recall_at_k(r.retrieved_ids, r.relevant_ids, k) for r in results]
+    rrs = [reciprocal_rank(r.retrieved_ids, r.relevant_ids) for r in results]
+    recall_ci = bootstrap_mean_ci(recalls, n_resamples=n_resamples, seed=seed)
+    mrr_ci = bootstrap_mean_ci(rrs, n_resamples=n_resamples, seed=seed)
+    return recall_ci, mrr_ci
+
+
 def _render_report(
     metrics: RetrievalMetrics,
     results: list[ExampleResult],
@@ -42,10 +59,13 @@ def _render_report(
     corpus: Path,
     num_chunks: int,
     retrieve_n: int,
+    recall_ci: BootstrapCI,
+    mrr_ci: BootstrapCI,
 ) -> str:
     """Render the evaluation results as a Markdown report."""
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     misses = [r for r in results if r.first_relevant_rank is None]
+    pct = round(recall_ci.confidence * 100)
     lines = [
         "# Retrieval evaluation — baseline",
         "",
@@ -57,13 +77,16 @@ def _render_report(
         "",
         f"## Metrics @{metrics.k}",
         "",
-        "| Metric | Value |",
-        "|---|---|",
-        f"| Recall@{metrics.k} | {metrics.recall_at_k:.3f} |",
-        f"| Precision@{metrics.k} | {metrics.precision_at_k:.3f} |",
-        f"| Hit rate@{metrics.k} | {metrics.hit_rate_at_k:.3f} |",
-        f"| MRR | {metrics.mrr:.3f} |",
-        f"| nDCG@{metrics.k} | {metrics.ndcg_at_k:.3f} |",
+        f"Confidence intervals are {pct}% bootstrap (per-query resampling).",
+        "",
+        "| Metric | Value | 95% CI |",
+        "|---|---|---|",
+        f"| Recall@{metrics.k} | {metrics.recall_at_k:.3f} "
+        f"| [{recall_ci.low:.3f}, {recall_ci.high:.3f}] |",
+        f"| Precision@{metrics.k} | {metrics.precision_at_k:.3f} | — |",
+        f"| Hit rate@{metrics.k} | {metrics.hit_rate_at_k:.3f} | — |",
+        f"| MRR | {metrics.mrr:.3f} | [{mrr_ci.low:.3f}, {mrr_ci.high:.3f}] |",
+        f"| nDCG@{metrics.k} | {metrics.ndcg_at_k:.3f} | — |",
         "",
         "## Per-question first-hit rank",
         "",
@@ -98,6 +121,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--retrieve-n", type=int, default=20, help="Candidates retrieved per query."
     )
     parser.add_argument(
+        "--bootstrap-resamples",
+        type=int,
+        default=10_000,
+        help="Bootstrap resamples for the recall@k / MRR confidence intervals.",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=0, help="Seed for the bootstrap resampling."
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=Path("reports/retrieval_baseline"),
@@ -122,6 +154,9 @@ def main(argv: list[str] | None = None) -> int:
     metrics, results = run_retrieval_eval(
         chunk_ids, texts, examples, embedder, k=args.k, retrieve_n=args.retrieve_n
     )
+    recall_ci, mrr_ci = _confidence_intervals(
+        results, args.k, n_resamples=args.bootstrap_resamples, seed=args.seed
+    )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     report = _render_report(
@@ -131,10 +166,15 @@ def main(argv: list[str] | None = None) -> int:
         corpus=args.corpus,
         num_chunks=len(chunk_ids),
         retrieve_n=args.retrieve_n,
+        recall_ci=recall_ci,
+        mrr_ci=mrr_ci,
     )
+    payload: dict[str, object] = dict(metrics.as_dict())
+    payload["recall_at_k_ci"] = recall_ci.as_dict()
+    payload["mrr_ci"] = mrr_ci.as_dict()
     args.out.with_suffix(".md").write_text(report, encoding="utf-8")
     args.out.with_suffix(".json").write_text(
-        json.dumps(metrics.as_dict(), indent=2), encoding="utf-8"
+        json.dumps(payload, indent=2), encoding="utf-8"
     )
     logger.info("Wrote report to %s.{md,json}", args.out)
     print("\n" + report)

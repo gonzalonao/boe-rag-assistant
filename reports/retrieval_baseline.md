@@ -1,6 +1,6 @@
 # Retrieval evaluation — baseline
 
-- **Generated:** 2026-06-14 00:25 UTC
+- **Generated:** 2026-06-20 01:20 UTC
 - **Model:** `intfloat/multilingual-e5-small`
 - **Corpus:** `boe-2024.parquet` (2225 chunks)
 - **Queries:** 20
@@ -8,13 +8,15 @@
 
 ## Metrics @10
 
-| Metric | Value |
-|---|---|
-| Recall@10 | 0.900 |
-| Precision@10 | 0.090 |
-| Hit rate@10 | 0.900 |
-| MRR | 0.749 |
-| nDCG@10 | 0.783 |
+Confidence intervals are 95% bootstrap (per-query resampling).
+
+| Metric | Value | 95% CI |
+|---|---|---|
+| Recall@10 | 0.900 | [0.750, 1.000] |
+| Precision@10 | 0.090 | — |
+| Hit rate@10 | 0.900 | — |
+| MRR | 0.749 | [0.584, 0.900] |
+| nDCG@10 | 0.783 | — |
 
 ## Per-question first-hit rank
 

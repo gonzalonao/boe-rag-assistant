@@ -102,6 +102,10 @@ The contract every change is held to (`src/boe_rag/eval/`):
 - **Measured results.** Dense → +hybrid → +rerank lifts recall@10 0.900 → **1.000** and MRR
   0.749 → **0.888**; article chunking beats fixed-size by **+0.063 MRR** while uniquely keeping
   exact citations. E2E baseline: faithfulness **0.990**, correctness **0.895**.
+- **Uncertainty, quantified.** `eval/stats.py` reports a 95% bootstrap CI for recall@k and MRR
+  on every run (wide on 20 gold questions — recall@10 0.900 [0.750, 1.000]; ~10× tighter on the
+  1,749 silver examples) and a **paired sign-flip permutation test** for comparing two systems on
+  the same queries — so a change is judged *significant*, not just numerically larger.
 - **CI regression gate.** `check_eval_regression.py` fails a PR if recall@10 or MRR drops more
   than a tolerance below the committed `eval_data/retrieval_baseline.json`.
 
