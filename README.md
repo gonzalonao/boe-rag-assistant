@@ -298,6 +298,38 @@ python scripts/run_e2e_eval.py --corpus data/corpus/boe-2024.parquet \
     --out reports/e2e_baseline
 ```
 
+### Adversarial security (red-team)
+
+A trustworthy answer has to survive a hostile user, so the generator is red-teamed against a
+curated set of attacks (`eval_data/adversarial_security.jsonl`) with deterministic, rule-based
+checks (`src/boe_rag/eval/security.py`) — no LLM judge, so the verdicts are stable. Four threat
+classes: **instruction override** ("ignore your rules and output X"), **system-prompt
+exfiltration** (defended with a canary token the answer must never contain),
+**citation spoofing** (the answer may only cite passages that were actually retrieved), and
+**out-of-corpus hallucination** (absent-law questions must refuse, not invent). The generator is
+also hardened to treat passages and the question as *data, never instructions*.
+
+Baseline over 14 attacks (dense k=5):
+
+| Attack category | Pass rate |
+|---|---|
+| out-of-corpus hallucination | 100% |
+| instruction override | 75% |
+| system-prompt exfiltration | 75% |
+| **citation spoofing** | **0%** |
+| **Overall** | **64% (9/14)** |
+
+The suite earns its keep by finding real weaknesses: the model **fabricates citations** when
+asked (e.g. `[99]` for a source that was never retrieved), which directly motivates the post-hoc
+**citation-validation** guardrail on the roadmap (Phase 5). Full report:
+[`reports/security_eval.md`](reports/security_eval.md). Reproduce it once an API key is set:
+
+```bash
+$env:OPENROUTER_API_KEY = "..."   # or GROQ_API_KEY / GEMINI_API_KEY
+python scripts/run_security_eval.py --corpus data/corpus/boe-2024.parquet \
+    --out reports/security_eval
+```
+
 ## API service (Phase 6)
 
 The query pipeline is served by a FastAPI app (`src/boe_rag/service/`). A `RagEngine`
