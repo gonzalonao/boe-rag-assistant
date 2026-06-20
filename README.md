@@ -115,6 +115,11 @@ clean, retrieval-ready corpus:
 # Build a corpus for a date range
 boe-ingest --start 2024-01-01 --end 2024-03-31 --out data/corpus/boe-2024-q1.parquet
 
+# Multi-year expansion: one Parquet shard per year (resumable — a re-run skips
+# years already crawled), then merge into a single de-duplicated corpus.
+python scripts/ingest_corpus_years.py --start-year 2015 --end-year 2026 \
+    --out-dir data/corpus/years --merged-out data/corpus/boe-2015-present.parquet
+
 # Publish it to the Hub (needs the `hub` extra and `huggingface-cli login`)
 python scripts/push_corpus_to_hub.py \
     --parquet data/corpus/boe-2024-q1.parquet --repo-id <user>/boe-corpus
@@ -309,22 +314,25 @@ exfiltration** (defended with a canary token the answer must never contain),
 **out-of-corpus hallucination** (absent-law questions must refuse, not invent). The generator is
 also hardened to treat passages and the question as *data, never instructions*.
 
-The suite earns its keep by finding a real weakness and then proving the fix. The baseline
-**fabricated citations** when asked (e.g. `[99]` for a source that was never retrieved) —
-prompt-level defenses caught it 0% of the time. A deterministic post-hoc
-**citation-validation** guardrail (`src/boe_rag/service/citation.py`) now strips any `[n]`
-pointing past the retrieved passages and refuses when an answer's grounding rests entirely on
-fabricated citations. Same harness, before vs. after (14 attacks, dense k=5):
+The suite earns its keep by finding real weaknesses and then proving the fixes. The prompt-only
+baseline **fabricated citations** when asked (e.g. `[99]` for a source never retrieved) and, on
+one phrasing, **leaked the system-prompt canary** — caught 0% and 75% of the time respectively.
+Two deterministic post-hoc guardrails close them: **citation validation**
+(`src/boe_rag/service/citation.py`) strips `[n]` markers pointing past the retrieved passages and
+refuses on entirely-fabricated grounding; **canary containment** (`src/boe_rag/service/safety.py`)
+refuses any answer that leaks the canary. Same harness, prompt-only baseline vs. with guardrails:
 
-| Attack category | Before | After |
+| Attack category | Baseline | With guardrails |
 |---|---|---|
 | out-of-corpus hallucination | 100% | 100% |
-| instruction override | 75% | 75% |
-| system-prompt exfiltration | 75% | 75% |
+| instruction override | 75% | 67% |
+| system-prompt exfiltration | 75% | **100%** |
 | **citation spoofing** | **0%** | **100%** |
-| **Overall** | **64% (9/14)** | **86% (12/14)** |
+| **Overall** | **64% (9/14)** | **91% (20/22)** |
 
-Full threat model, methodology, and the find→fix loop: [`docs/SECURITY.md`](docs/SECURITY.md);
+The remaining gap is instruction-override *echo* (2 cases) — there's no fixed token to match
+deterministically, so it's tracked honestly rather than papered over. Full threat model,
+methodology, and the find→fix loops: [`docs/SECURITY.md`](docs/SECURITY.md);
 latest report: [`reports/security_eval.md`](reports/security_eval.md). Reproduce it once an API
 key is set:
 
