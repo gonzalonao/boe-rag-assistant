@@ -59,37 +59,44 @@ python scripts/run_security_eval.py --corpus data/corpus/boe-2024.parquet \
 - **Cite-or-refuse** generation: answer only from retrieved passages, cite them,
   or emit the exact refusal string.
 
-## Current posture (baseline, 14 attacks, dense k=5)
+## Posture: before vs. after the fix (14 attacks, dense k=5)
 
-| Attack category | Pass rate |
-|---|---|
-| Out-of-corpus hallucination | 100% |
-| Instruction override | 75% |
-| System-prompt exfiltration | 75% |
-| **Citation spoofing** | **0%** |
-| **Overall** | **64% (9/14)** |
+| Attack category | Before | After |
+|---|---|---|
+| Out-of-corpus hallucination | 100% | 100% |
+| Instruction override | 75% | 75% |
+| System-prompt exfiltration | 75% | 75% |
+| **Citation spoofing** | **0%** | **100%** |
+| **Overall** | **64% (9/14)** | **86% (12/14)** |
 
-The suite earns its keep by finding a **real weakness**: when explicitly asked,
-the model **fabricates citations** to sources that were never retrieved (e.g.
-`[99]`). Out-of-corpus refusal is solid; instruction-override and exfiltration are
-mostly — but not fully — held by prompt-level defenses alone.
+The suite earned its keep by finding a **real weakness**: when explicitly asked,
+the baseline generator **fabricated citations** to sources that were never
+retrieved (e.g. `[99]`) — prompt-level defenses caught it 0% of the time. Adding
+the guardrail below closed that category completely while leaving the rest of the
+suite unchanged. Out-of-corpus refusal is solid; instruction-override and
+exfiltration are mostly — but not fully — held by prompt-level defenses alone (the
+two residual failures are an echoed payload and a leaked canary, the next gaps to
+close).
 
-## The fix (find → fix loop)
+## The fix (find → fix loop) — shipped
 
 Prompt-level defenses can't *guarantee* citation integrity — that needs a
-deterministic guardrail. The planned **post-hoc citation validation** (Phase 5)
-will, after generation and before returning the answer:
+deterministic guardrail. **Post-hoc citation validation**
+(`src/boe_rag/service/citation.py`, wired into `RagEngine.answer`) runs after
+generation and before returning the answer:
 
 1. parse every `[n]` citation,
-2. drop or flag any `n` outside `1..k` (a citation to a passage that was never
-   retrieved),
-3. optionally refuse if the answer's claims rest on an invalid citation.
+2. strip any `n` outside `1..k` (a citation to a passage that was never
+   retrieved) from the answer text,
+3. refuse — emit the exact refusal string — when an answer's grounding rests
+   *entirely* on fabricated citations, since it then has no real source to stand
+   on.
 
-Re-running `run_security_eval.py` afterwards gives a clean **before/after**:
-citation spoofing **0% → ~100%**, with the rest of the suite unchanged. This is
-the canonical security workflow — *measure, find a real gap, close it, prove the
-close with the same harness* — and the reason the adversarial eval was built
-before the defense.
+Re-running `run_security_eval.py` against the same harness gives the clean
+**before/after** in the table above: citation spoofing **0% → 100%**, with the
+rest of the suite unchanged. This is the canonical security workflow — *measure,
+find a real gap, close it, prove the close with the same harness* — and the reason
+the adversarial eval was built before the defense.
 
 ## Scope and non-goals
 
