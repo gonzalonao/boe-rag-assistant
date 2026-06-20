@@ -6,7 +6,8 @@ the production wiring — never imported by the unit tests, which inject a fake
 engine. The Gradio demo UI is mounted at ``/`` and the JSON API lives alongside
 it (``/ask``, ``/search``, ``/health``, ``/docs``).
 
-Configuration via environment:
+Configuration via environment (or a local ``.env`` — see ``.env.example`` and
+:func:`boe_rag.settings.load_environment`; real environment variables win):
     ``BOE_CORPUS_PATH``  path to the corpus Parquet (default the bundled 2024 set).
     ``BOE_EMBEDDINGS_PATH``  optional precomputed-embeddings ``.npz`` to skip the
         startup encode (see ``scripts/precompute_embeddings.py``).
@@ -22,7 +23,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 
 import gradio as gr
@@ -39,6 +39,7 @@ from boe_rag.service.api import create_app
 from boe_rag.service.engine import ChunkInfo, RagEngine
 from boe_rag.service.tracing import build_tracer
 from boe_rag.service.ui import build_ui, render_quality_markdown
+from boe_rag.settings import load_environment
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_CORPUS_PATH = Path("data/corpus/boe-2024.parquet")
 #: Default directory of eval report JSON when ``BOE_REPORTS_DIR`` is unset.
 DEFAULT_REPORTS_DIR = Path("reports")
+
+#: Settings loaded once at import: reads the environment plus an optional ``.env``
+#: and exports it, so provider/tracing lookups below see ``.env`` values too.
+_SETTINGS = load_environment()
 
 
 def _index_dense(ids: list[str], texts: list[str]) -> DenseRetriever:
@@ -58,9 +63,9 @@ def _index_dense(ids: list[str], texts: list[str]) -> DenseRetriever:
     encoding so a stale file can never serve wrong results.
     """
     dense = DenseRetriever(E5Embedder())
-    embeddings_path = os.environ.get("BOE_EMBEDDINGS_PATH")
-    if embeddings_path and Path(embeddings_path).is_file():
-        cached_ids, matrix = load_embeddings(Path(embeddings_path))
+    embeddings_path = _SETTINGS.embeddings_path
+    if embeddings_path and embeddings_path.is_file():
+        cached_ids, matrix = load_embeddings(embeddings_path)
         if cached_ids == ids:
             logger.info("Loading %d precomputed embeddings ...", len(cached_ids))
             dense.index_precomputed(cached_ids, matrix)
@@ -106,9 +111,7 @@ def build_engine(corpus_path: Path | None = None) -> RagEngine:
     Raises:
         LLMError: If no LLM provider is configured.
     """
-    path = corpus_path or Path(
-        os.environ.get("BOE_CORPUS_PATH", str(DEFAULT_CORPUS_PATH))
-    )
+    path = corpus_path or _SETTINGS.corpus_path or DEFAULT_CORPUS_PATH
     providers = build_available_providers()
     if not providers:
         raise LLMError(
@@ -146,9 +149,7 @@ def _load_json(path: Path) -> dict[str, object]:
 
 def _quality_markdown(reports_dir: Path | None = None) -> str:
     """Render the Quality-tab Markdown from the eval report JSON files."""
-    directory = reports_dir or Path(
-        os.environ.get("BOE_REPORTS_DIR", str(DEFAULT_REPORTS_DIR))
-    )
+    directory = reports_dir or _SETTINGS.reports_dir or DEFAULT_REPORTS_DIR
     retrieval = _load_json(directory / "retrieval_rerank.json")
     e2e = _load_json(directory / "e2e_baseline.json")
     return render_quality_markdown(retrieval, e2e)  # type: ignore[arg-type]
