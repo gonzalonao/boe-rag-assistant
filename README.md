@@ -321,7 +321,8 @@ Baseline over 14 attacks (dense k=5):
 
 The suite earns its keep by finding real weaknesses: the model **fabricates citations** when
 asked (e.g. `[99]` for a source that was never retrieved), which directly motivates the post-hoc
-**citation-validation** guardrail on the roadmap (Phase 5). Full report:
+**citation-validation** guardrail on the roadmap (Phase 5). Full threat model, methodology, and
+the find→fix plan: [`docs/SECURITY.md`](docs/SECURITY.md); full report:
 [`reports/security_eval.md`](reports/security_eval.md). Reproduce it once an API key is set:
 
 ```bash
