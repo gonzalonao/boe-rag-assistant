@@ -442,6 +442,23 @@ Run the quality suite (same checks as CI):
 ruff format --check . && ruff check . && mypy && pytest
 ```
 
+### Configuration
+
+All runtime configuration is centralised in a typed
+[pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) model
+(`src/boe_rag/settings.py`) — LLM keys/models, corpus/embeddings/report paths, and the
+optional Langfuse keys. For local development, copy the template and fill in what you need:
+
+```bash
+cp .env.example .env        # Windows PowerShell: Copy-Item .env.example .env
+```
+
+The app and the eval scripts load `.env` at startup (`load_environment()`); a real
+environment variable always overrides the file, and every key is optional. So instead of
+exporting `$env:OPENROUTER_API_KEY` before each command, you can set it once in `.env`. In
+production (the HF Space) nothing changes — the keys come from the Space secrets as ordinary
+environment variables. `.env` is git-ignored and never committed.
+
 ## Author
 
 **Gonzalo López Crespo** — [LinkedIn](https://linkedin.com/in/gonzalolopezcrespo) · [GitHub](https://github.com/gonzalonao)

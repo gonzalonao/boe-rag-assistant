@@ -19,6 +19,7 @@ htmlcov/
 # Secrets & local config
 .env
 .env.*
+!.env.example  # tracked: secret-free template, copied to .env locally
 
 # Data, models, and indexes (published to HF Hub, never committed)
 data/

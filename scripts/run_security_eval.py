@@ -34,6 +34,7 @@ from boe_rag.eval.security import (
 from boe_rag.llm.base import LLMError
 from boe_rag.llm.factory import FallbackProvider, build_available_providers
 from boe_rag.service.engine import ChunkInfo, RagEngine
+from boe_rag.settings import load_environment
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         0 on success, 1 if no LLM provider is configured.
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    load_environment()  # pick up a local .env (real env vars still win)
     args = _build_parser().parse_args(argv)
 
     providers = build_available_providers()

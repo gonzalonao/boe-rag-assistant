@@ -130,6 +130,12 @@ The contract every change is held to (`src/boe_rag/eval/`):
   embeddings**, and model weights, so the running Space does no downloads and no startup encode.
   Each version tag triggers `deploy-space.yml`, which mirrors to the Space — every deploy is a
   tagged release.
+- **Centralised config (`settings.py`).** A typed pydantic-settings model is the single source for
+  every environment knob (LLM keys/models, corpus/embeddings/report paths, Langfuse). Entrypoints
+  call `load_environment()`, which reads an optional `.env` and exports it without overriding real
+  environment variables — so `.env` is a local convenience while Space secrets win in production.
+  It is loaded only at entrypoints, never in library code, so the env-driven provider tests stay
+  hermetic.
 
 ## 7. Observability (`service/tracing.py`)
 Each stage is wrapped in a `Tracer` span (`answer → retrieve → rerank → generate`). Default is a
