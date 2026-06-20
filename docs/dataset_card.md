@@ -58,6 +58,8 @@ fixed-size windows, which makes retrieval both more accurate and verifiable.
   (daily *sumario* index → per-document XML).
 - **Scope:** section `1` ("I. Disposiciones Generales"), the most durable and
   citable content.
+- **Coverage:** January 2015 – June 2026, ≈25.4K chunks across ≈1,043 documents
+  (including foundational laws such as Ley 39/2015 and Ley 40/2015).
 - **Processing:** XML parsed into structured records, then chunked along the
   legal hierarchy (título → capítulo → sección → artículo). Whitespace
   normalised; blank and sub-minimum fragments merged into neighbours.
