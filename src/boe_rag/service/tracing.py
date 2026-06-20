@@ -7,16 +7,22 @@ Langfuse (plan Phase 6) without changing the engine. The default
 not an observability backend is wired in — keeping the heavy dependency and the
 network egress out of CI and out of the default serving path.
 
-A future Langfuse adapter implements :class:`Tracer` by opening a Langfuse span
-in :meth:`Tracer.span` and forwarding :meth:`Span.update` to it; nothing else in
-the codebase needs to change.
+The :class:`LangfuseTracer` adapter implements :class:`Tracer` by opening a
+Langfuse span in :meth:`Tracer.span` and forwarding :meth:`Span.update` to it;
+nothing else in the codebase changes. :func:`build_tracer` returns it when the
+``LANGFUSE_*`` environment variables are set and a :class:`NoOpTracer` otherwise,
+so observability is opt-in and the ``langfuse`` package stays an optional extra.
 """
 
 from __future__ import annotations
 
+import logging
+import os
 from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -81,3 +87,128 @@ class NoOpTracer:
     def span(self, name: str, **inputs: object) -> Iterator[Span]:
         """Yield a no-op span and discard it on exit."""
         yield _NoOpSpan()
+
+
+class _LangfuseSpanHandle(Protocol):
+    """The slice of a Langfuse span object this adapter calls."""
+
+    def update(self, **kwargs: object) -> None:
+        """Forward keyword fields (``output``, ``metadata``, ...) to Langfuse."""
+        ...
+
+
+class _LangfuseClient(Protocol):
+    """The slice of the Langfuse client this adapter calls.
+
+    Targets the OpenTelemetry-based Langfuse v3 SDK, whose
+    ``start_as_current_span`` is a context manager and whose nested calls
+    automatically parent to the currently active span — giving the
+    answer → retrieve → rerank → generate tree for free.
+    """
+
+    def start_as_current_span(
+        self, *, name: str, input: object = None
+    ) -> AbstractContextManager[_LangfuseSpanHandle]:
+        """Open a Langfuse span as the current span and return it."""
+        ...
+
+    def update_current_trace(self, *, name: str) -> None:
+        """Set attributes (here, the name) on the currently active trace."""
+        ...
+
+
+class _LangfuseSpan:
+    """Adapts a Langfuse span to the :class:`Span` protocol."""
+
+    def __init__(self, handle: _LangfuseSpanHandle) -> None:
+        """Wrap the underlying Langfuse span handle."""
+        self._handle = handle
+
+    def update(
+        self,
+        *,
+        output: object = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> None:
+        """Forward the provided fields to the Langfuse span."""
+        fields: dict[str, object] = {}
+        if output is not None:
+            fields["output"] = output
+        if metadata is not None:
+            fields["metadata"] = metadata
+        if fields:
+            self._handle.update(**fields)
+
+
+class LangfuseTracer:
+    """A :class:`Tracer` backed by Langfuse.
+
+    Each pipeline stage becomes a Langfuse span; nested stages nest in the trace
+    because Langfuse parents new spans to the currently active one. The client is
+    injected (built by :func:`build_tracer`) so this adapter carries no hard
+    dependency on the ``langfuse`` package and is testable with a fake.
+
+    Args:
+        client: A Langfuse client (anything matching :class:`_LangfuseClient`).
+    """
+
+    def __init__(self, client: _LangfuseClient) -> None:
+        """Bind the Langfuse client used to open spans."""
+        self._client = client
+
+    @contextmanager
+    def span(self, name: str, **inputs: object) -> Iterator[Span]:
+        """Open a Langfuse span for a pipeline stage, recording its inputs."""
+        with self._client.start_as_current_span(
+            name=name, input=dict(inputs)
+        ) as handle:
+            self._name_trace_from_query(inputs)
+            yield _LangfuseSpan(handle)
+
+    def _name_trace_from_query(self, inputs: Mapping[str, object]) -> None:
+        """Name the trace after the user's question, when one is present.
+
+        Without this the trace inherits the root span's name (``"answer"``),
+        which Langfuse then shows stacked above an identically named span. Naming
+        the trace after the ``query`` makes the tree read cleanly and, more
+        usefully, makes traces searchable by question in the dashboard. Every
+        stage that carries the query sets the same value, so the call is
+        idempotent within a trace.
+        """
+        query = inputs.get("query")
+        if not isinstance(query, str):
+            return
+        try:
+            self._client.update_current_trace(name=query)
+        except (AttributeError, TypeError):  # defensive: tolerate Langfuse SDK drift
+            logger.debug("Could not set the Langfuse trace name.", exc_info=True)
+
+
+def build_tracer() -> Tracer:
+    """Return a configured tracer for the serving pipeline.
+
+    Returns a :class:`LangfuseTracer` when both ``LANGFUSE_PUBLIC_KEY`` and
+    ``LANGFUSE_SECRET_KEY`` are set (the Langfuse client also reads
+    ``LANGFUSE_HOST`` from the environment); otherwise returns a
+    :class:`NoOpTracer`, so tracing stays opt-in and the ``langfuse`` package is
+    imported only when it is actually wanted.
+
+    Returns:
+        A :class:`Tracer`: Langfuse-backed when configured, else a no-op.
+    """
+    if not (
+        os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")
+    ):
+        return NoOpTracer()
+    try:
+        from langfuse import Langfuse  # optional dependency; imported lazily
+    except ImportError:
+        logger.warning(
+            "LANGFUSE_* keys are set but the 'langfuse' package is not installed; "
+            "tracing is disabled. Install the 'obs' extra to enable it."
+        )
+        return NoOpTracer()
+    logger.info("Langfuse keys detected; enabling tracing.")
+    # The real client's typed surface is far richer than the slice we call;
+    # cast it to that slice (see _LangfuseClient) rather than relax it here.
+    return LangfuseTracer(cast("_LangfuseClient", Langfuse()))

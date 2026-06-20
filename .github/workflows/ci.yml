@@ -9,9 +9,9 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -32,3 +32,45 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+  eval-gate:
+    name: Retrieval regression gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package with ml + hub extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e .[ml,hub]
+
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-multilingual-e5-small
+
+      - name: Fetch the published corpus
+        run: |
+          python scripts/fetch_corpus.py \
+            --repo-id gonzalonao/boe-corpus \
+            --out data/corpus/boe-2024.parquet
+
+      - name: Evaluate retrieval on the gold seed set
+        run: |
+          python scripts/run_eval.py \
+            --corpus data/corpus/boe-2024.parquet \
+            --evalset eval_data/seed_evalset.jsonl \
+            --out reports/ci_retrieval
+
+      - name: Fail on retrieval regression
+        run: |
+          python scripts/check_eval_regression.py \
+            --metrics reports/ci_retrieval.json \
+            --baseline eval_data/retrieval_baseline.json

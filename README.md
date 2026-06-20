@@ -12,10 +12,36 @@ against a curated golden dataset before it ships.
 
 **Tech stack (built):** Python · sentence-transformers (multilingual-E5 + cross-encoder) ·
 NumPy in-memory hybrid index (dense + BM25/RRF) · FastAPI · Gradio · Docker ·
-Hugging Face Hub (datasets, models, Spaces) · GitHub Actions
+Hugging Face Hub (datasets, models, Spaces) · Langfuse (opt-in tracing) · GitHub Actions
 
 **Planned:** Qdrant (vector store at full-corpus scale) · ONNX Runtime (int8 reranker) ·
-fine-tuned Spanish embedding model · RAGAS (eval metrics) · Langfuse (request tracing)
+fine-tuned Spanish embedding model · RAGAS (eval metrics)
+
+## Demo
+
+[**▶ Try the live demo**](https://huggingface.co/spaces/gonzalonao/boe-rag-assistant) — ask a
+question about Spanish law in natural language and get an answer with citations linked back to
+boe.es (or an honest refusal when the corpus doesn't cover it).
+
+<!-- To embed the demo recording: add docs/media/demo.gif (see docs/media/README.md) and
+     uncomment the next line.
+![BOE RAG Assistant demo](docs/media/demo.gif)
+-->
+
+### Results at a glance
+
+Retrieval on the 20-question golden set (2024 corpus, 2,225 chunks) — every stage measured
+before it shipped:
+
+| Stage | Recall@10 | MRR | nDCG@10 |
+|---|---|---|---|
+| Dense baseline (`multilingual-e5-small`) | 0.900 | 0.749 | 0.783 |
+| + Hybrid (BM25 · RRF fusion) | 0.900 | 0.763 | 0.793 |
+| **+ Cross-encoder rerank** | **1.000** | **0.888** | **0.913** |
+
+End-to-end answer quality (cite-or-refuse generation, scored by an LLM-as-judge):
+**faithfulness 0.990 · correctness 0.895 · refusal rate 0.050**. Full methodology, per-stage
+tables, and reproduction commands in [Evaluation](#evaluation-phase-2).
 
 ## Why this project
 
@@ -45,6 +71,9 @@ query ─▶ hybrid retrieval ─▶ rerank (cross-encoder) ─▶ grounded gene
 > scale-up swaps in a **Qdrant** store (full-corpus, on-disk) and an **ONNX int8** reranker
 > (see the roadmap).
 
+For the full rationale — design principles, trade-offs, and the decisions log — see
+[`docs/DESIGN.md`](docs/DESIGN.md).
+
 ### Extending the pipeline
 
 The query engine (`RagEngine`) depends only on small protocols, so each planned
@@ -56,7 +85,7 @@ optimization is a drop-in implementation rather than a rewrite:
 | Query encoding | `Embedder` (`eval/retriever.py`) | off-the-shelf `multilingual-e5-small` | fine-tuned E5, ONNX int8 |
 | Reranking | `Reranker` (`eval/rerank.py`) | sentence-transformers cross-encoder | ONNX int8 cross-encoder |
 | Generation | `LLMProvider` (`llm/base.py`) | OpenRouter → Groq → Gemini fallback chain | any OpenAI-compatible provider |
-| Observability | `Tracer` (`service/tracing.py`) | no-op (zero overhead) | Langfuse per-stage spans |
+| Observability | `Tracer` (`service/tracing.py`) | no-op by default; **Langfuse per-stage spans** when `LANGFUSE_*` is set | hosted dashboards, eval scoring |
 
 `build_engine` (`service/app.py`) wires the concrete implementations together;
 swapping one is a constructor change, and the unit tests exercise the engine with
@@ -98,7 +127,8 @@ python scripts/push_corpus_to_hub.py \
 - [ ] **Phase 5** — Grounded generation with citation validation
 - [x] **Phase 6** — Serving: FastAPI service (`/ask`, `/search`, `/health`) + Gradio demo UI
   (chat with linked citations + a Quality tab) + containerised Hugging Face Space deployment
-- [ ] **Phase 7** — Scheduled incremental ingestion + observability
+- [ ] **Phase 7** — Scheduled incremental ingestion + observability (Langfuse tracing
+  wired via the `Tracer` seam; scheduled ingestion pending)
 
 ## Evaluation (Phase 2)
 
@@ -108,12 +138,22 @@ each mapped to the chunk that answers it. Metrics (recall@k, precision@k, hit ra
 nDCG) are pure-Python and run in CI; the retrieval run uses an off-the-shelf embedding
 model and is reproducible locally.
 
+A **CI eval-gate** turns this into a regression guard: every pull request re-runs the
+gold-set retrieval evaluation and fails if recall@10 or MRR drops more than a small
+tolerance below the committed baseline ([`eval_data/retrieval_baseline.json`](eval_data/retrieval_baseline.json)),
+so a change can't silently degrade retrieval quality.
+
 **Two tiers of questions.** The 20 hand-curated questions are the trusted *gold* set. To
 scale measurement, `scripts/generate_evalset.py` produces a larger *silver* set: it prompts
 an LLM to write a self-contained question + answer grounded in a sampled chunk, drops deictic
 or trivial questions, and keeps only answers the LLM-judge rates faithful to their source
 (`src/boe_rag/eval/generate.py`). Synthetic questions can flatter the system that generated
 them, so the two tiers are reported separately and the gold set stays the source of truth.
+
+Both tiers are published on the Hub as
+[`gonzalonao/boe-rag-evalset`](https://huggingface.co/datasets/gonzalonao/boe-rag-evalset)
+(1,749 silver + 20 gold QA pairs, validated against the corpus). On the silver split,
+dense retrieval (e5-small, k=10) scores recall@10 0.963 / MRR 0.827.
 
 ```bash
 $env:OPENROUTER_API_KEY = "..."   # preferred: ~1000 free calls/day on `:free` models
@@ -309,6 +349,30 @@ docker build -t boe-rag .
 docker run --rm -p 7860:7860 -e OPENROUTER_API_KEY="..." boe-rag
 # → http://localhost:7860/
 ```
+
+## Observability (Phase 6)
+
+Each pipeline stage (`answer → retrieve → rerank → generate`) is instrumented behind a
+`Tracer` protocol. By default it is a **no-op** — zero overhead, zero dependencies. Set
+`LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` (and install the `obs` extra) and the same
+spans are exported to **Langfuse**, where each request appears as a nested trace named after
+the question, with per-stage latency, inputs, and outputs:
+
+<!-- Add docs/media/langfuse-trace.png (see docs/media/README.md) and uncomment:
+![Langfuse trace of a single request](docs/media/langfuse-trace.png)
+-->
+
+```bash
+pip install -e ".[api,ml,ui,obs]"
+$env:LANGFUSE_PUBLIC_KEY = "pk-lf-..."
+$env:LANGFUSE_SECRET_KEY = "sk-lf-..."
+$env:LANGFUSE_HOST = "https://cloud.langfuse.com"   # or your self-hosted instance
+uvicorn boe_rag.service.app:app
+```
+
+The adapter ([`service/tracing.py`](src/boe_rag/service/tracing.py)) is unit-tested with a
+fake client, so the heavy dependency and the network egress stay out of CI and the default
+serving path. (Quality *scores* — LLM-judge faithfulness, 👍/👎 — are a planned follow-up.)
 
 ## Getting started
 

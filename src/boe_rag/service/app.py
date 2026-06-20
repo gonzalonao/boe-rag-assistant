@@ -13,6 +13,9 @@ Configuration via environment:
     ``BOE_REPORTS_DIR``  directory of eval report JSON for the Quality tab.
     ``OPENROUTER_API_KEY`` / ``GROQ_API_KEY`` / ``GEMINI_API_KEY``  at least one is
         required for ``/ask`` (tried in that order; the first with a key leads).
+    ``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY`` (+ optional ``LANGFUSE_HOST``)
+        opt-in: when both are set, pipeline stages are traced to Langfuse (needs
+        the ``obs`` extra); otherwise tracing is a no-op.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from boe_rag.llm.base import LLMError
 from boe_rag.llm.factory import FallbackProvider, build_available_providers
 from boe_rag.service.api import create_app
 from boe_rag.service.engine import ChunkInfo, RagEngine
+from boe_rag.service.tracing import build_tracer
 from boe_rag.service.ui import build_ui, render_quality_markdown
 
 logger = logging.getLogger(__name__)
@@ -126,6 +130,7 @@ def build_engine(corpus_path: Path | None = None) -> RagEngine:
         lookup=lookup,
         provider=FallbackProvider(providers),
         reranker=CrossEncoderReranker(),
+        tracer=build_tracer(),
     )
 
 
