@@ -49,7 +49,7 @@ re-run skips years already done, so you can stop with `Ctrl+C` and resume anytim
 **Step 2 — Sanity-check the merged corpus.**
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/inspect_corpus.py --parquet data/corpus/boe-2015-present.parquet
+.\.venv\Scripts\python.exe scripts/inspect_corpus.py data/corpus/boe-2015-present.parquet
 ```
 
 Confirm the chunk count jumped (expect 10–50× the 2,225 of the 2024 slice) and spot-check a
