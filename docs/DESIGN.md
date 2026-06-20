@@ -106,6 +106,12 @@ The contract every change is held to (`src/boe_rag/eval/`):
   on every run (wide on 20 gold questions — recall@10 0.900 [0.750, 1.000]; ~10× tighter on the
   1,749 silver examples) and a **paired sign-flip permutation test** for comparing two systems on
   the same queries — so a change is judged *significant*, not just numerically larger.
+- **Adversarial security.** `eval/security.py` red-teams the generator against prompt
+  injection, system-prompt exfiltration (canary-based detection), citation spoofing, and
+  out-of-corpus hallucination — deterministic rule-based checks, no LLM judge. The baseline
+  (9/14) deliberately surfaces a real weakness — fabricated citations — that motivates the
+  Phase 5 citation-validation guardrail. The generator is hardened to treat passages and the
+  question as data, not instructions.
 - **CI regression gate.** `check_eval_regression.py` fails a PR if recall@10 or MRR drops more
   than a tolerance below the committed `eval_data/retrieval_baseline.json`.
 
