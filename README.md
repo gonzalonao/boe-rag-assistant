@@ -115,6 +115,11 @@ clean, retrieval-ready corpus:
 # Build a corpus for a date range
 boe-ingest --start 2024-01-01 --end 2024-03-31 --out data/corpus/boe-2024-q1.parquet
 
+# Multi-year expansion: one Parquet shard per year (resumable — a re-run skips
+# years already crawled), then merge into a single de-duplicated corpus.
+python scripts/ingest_corpus_years.py --start-year 2015 --end-year 2026 \
+    --out-dir data/corpus/years --merged-out data/corpus/boe-2015-present.parquet
+
 # Publish it to the Hub (needs the `hub` extra and `huggingface-cli login`)
 python scripts/push_corpus_to_hub.py \
     --parquet data/corpus/boe-2024-q1.parquet --repo-id <user>/boe-corpus
