@@ -102,6 +102,16 @@ The contract every change is held to (`src/boe_rag/eval/`):
 - **Measured results.** Dense → +hybrid → +rerank lifts recall@10 0.900 → **1.000** and MRR
   0.749 → **0.888**; article chunking beats fixed-size by **+0.063 MRR** while uniquely keeping
   exact citations. E2E baseline: faithfulness **0.990**, correctness **0.895**.
+- **Uncertainty, quantified.** `eval/stats.py` reports a 95% bootstrap CI for recall@k and MRR
+  on every run (wide on 20 gold questions — recall@10 0.900 [0.750, 1.000]; ~10× tighter on the
+  1,749 silver examples) and a **paired sign-flip permutation test** for comparing two systems on
+  the same queries — so a change is judged *significant*, not just numerically larger.
+- **Adversarial security.** `eval/security.py` red-teams the generator against prompt
+  injection, system-prompt exfiltration (canary-based detection), citation spoofing, and
+  out-of-corpus hallucination — deterministic rule-based checks, no LLM judge. The baseline
+  (9/14) deliberately surfaces a real weakness — fabricated citations — that motivates the
+  Phase 5 citation-validation guardrail. The generator is hardened to treat passages and the
+  question as data, not instructions.
 - **CI regression gate.** `check_eval_regression.py` fails a PR if recall@10 or MRR drops more
   than a tolerance below the committed `eval_data/retrieval_baseline.json`.
 
@@ -120,6 +130,12 @@ The contract every change is held to (`src/boe_rag/eval/`):
   embeddings**, and model weights, so the running Space does no downloads and no startup encode.
   Each version tag triggers `deploy-space.yml`, which mirrors to the Space — every deploy is a
   tagged release.
+- **Centralised config (`settings.py`).** A typed pydantic-settings model is the single source for
+  every environment knob (LLM keys/models, corpus/embeddings/report paths, Langfuse). Entrypoints
+  call `load_environment()`, which reads an optional `.env` and exports it without overriding real
+  environment variables — so `.env` is a local convenience while Space secrets win in production.
+  It is loaded only at entrypoints, never in library code, so the env-driven provider tests stay
+  hermetic.
 
 ## 7. Observability (`service/tracing.py`)
 Each stage is wrapped in a `Tracer` span (`answer → retrieve → rerank → generate`). Default is a

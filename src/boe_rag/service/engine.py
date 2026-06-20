@@ -17,6 +17,7 @@ from boe_rag.eval.answerer import REFUSAL, generate_answer
 from boe_rag.eval.rerank import DEFAULT_RERANK_POOL, Reranker
 from boe_rag.eval.retriever import Searcher
 from boe_rag.llm.base import LLMProvider
+from boe_rag.service.citation import validate_citations
 from boe_rag.service.models import AnswerResponse, Source
 from boe_rag.service.tracing import NoOpTracer, Tracer
 
@@ -154,8 +155,19 @@ class RagEngine:
             with self._tracer.span("generate", contexts=len(contexts)) as generation:
                 text = generate_answer(query, contexts, self._provider)
                 generation.update(output=text)
-            refused = text.strip().startswith(REFUSAL[:20])
-            root.update(metadata={"refused": refused, "sources": len(sources)})
+            # Deterministic guardrail: the prompt cannot guarantee citation
+            # integrity, so strip any [n] pointing past the retrieved passages and
+            # refuse if the grounding rested entirely on fabricated citations.
+            validation = validate_citations(text, len(sources), refusal=REFUSAL)
+            text = validation.answer
+            refused = validation.refused or text.strip().startswith(REFUSAL[:20])
+            root.update(
+                metadata={
+                    "refused": refused,
+                    "sources": len(sources),
+                    "stripped_citations": len(validation.invalid_citations),
+                }
+            )
             return AnswerResponse(
                 answer=text, refused=refused, sources=[] if refused else sources
             )

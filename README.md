@@ -43,6 +43,12 @@ End-to-end answer quality (cite-or-refuse generation, scored by an LLM-as-judge)
 **faithfulness 0.990 · correctness 0.895 · refusal rate 0.050**. Full methodology, per-stage
 tables, and reproduction commands in [Evaluation](#evaluation-phase-2).
 
+**With error bars.** Twenty gold questions carry wide uncertainty — recall@10 0.900 has a 95%
+bootstrap CI of **[0.750, 1.000]**, so a 0.05 swing is within noise. The 1,749-example silver
+set tightens that ~10× (recall@10 **0.963 [0.954, 0.972]**, MRR **0.827 [0.813, 0.842]**), which
+is exactly why it exists. Every eval reports bootstrap CIs, and `eval/stats.py` adds a paired
+permutation test so two systems can be compared for *significance*, not just a higher mean.
+
 ## Why this project
 
 Most RAG demos are English-only toys with no measurement story. This one targets a real,
@@ -153,7 +159,16 @@ them, so the two tiers are reported separately and the gold set stays the source
 Both tiers are published on the Hub as
 [`gonzalonao/boe-rag-evalset`](https://huggingface.co/datasets/gonzalonao/boe-rag-evalset)
 (1,749 silver + 20 gold QA pairs, validated against the corpus). On the silver split,
-dense retrieval (e5-small, k=10) scores recall@10 0.963 / MRR 0.827.
+dense retrieval (e5-small, k=10) scores recall@10 **0.963 [0.954, 0.972]** / MRR
+**0.827 [0.813, 0.842]** (95% bootstrap CIs).
+
+**Quantifying the uncertainty.** Every `run_eval.py` run reports a 95% bootstrap confidence
+interval for recall@k and MRR (`src/boe_rag/eval/stats.py`), so the report shows how much
+sampling noise sits behind each point estimate — on 20 questions the CIs are wide, on 1,749
+they are tight. The same module provides a **paired sign-flip permutation test**
+(`paired_delta_significance`) for comparing two systems on the same queries: it answers "is this
+change *significant*?", not just "did the mean go up?", with the pairing removing between-query
+variance so smaller real gains are detectable.
 
 ```bash
 $env:OPENROUTER_API_KEY = "..."   # preferred: ~1000 free calls/day on `:free` models
@@ -283,6 +298,42 @@ python scripts/run_e2e_eval.py --corpus data/corpus/boe-2024.parquet \
     --out reports/e2e_baseline
 ```
 
+### Adversarial security (red-team)
+
+A trustworthy answer has to survive a hostile user, so the generator is red-teamed against a
+curated set of attacks (`eval_data/adversarial_security.jsonl`) with deterministic, rule-based
+checks (`src/boe_rag/eval/security.py`) — no LLM judge, so the verdicts are stable. Four threat
+classes: **instruction override** ("ignore your rules and output X"), **system-prompt
+exfiltration** (defended with a canary token the answer must never contain),
+**citation spoofing** (the answer may only cite passages that were actually retrieved), and
+**out-of-corpus hallucination** (absent-law questions must refuse, not invent). The generator is
+also hardened to treat passages and the question as *data, never instructions*.
+
+The suite earns its keep by finding a real weakness and then proving the fix. The baseline
+**fabricated citations** when asked (e.g. `[99]` for a source that was never retrieved) —
+prompt-level defenses caught it 0% of the time. A deterministic post-hoc
+**citation-validation** guardrail (`src/boe_rag/service/citation.py`) now strips any `[n]`
+pointing past the retrieved passages and refuses when an answer's grounding rests entirely on
+fabricated citations. Same harness, before vs. after (14 attacks, dense k=5):
+
+| Attack category | Before | After |
+|---|---|---|
+| out-of-corpus hallucination | 100% | 100% |
+| instruction override | 75% | 75% |
+| system-prompt exfiltration | 75% | 75% |
+| **citation spoofing** | **0%** | **100%** |
+| **Overall** | **64% (9/14)** | **86% (12/14)** |
+
+Full threat model, methodology, and the find→fix loop: [`docs/SECURITY.md`](docs/SECURITY.md);
+latest report: [`reports/security_eval.md`](reports/security_eval.md). Reproduce it once an API
+key is set:
+
+```bash
+$env:OPENROUTER_API_KEY = "..."   # or GROQ_API_KEY / GEMINI_API_KEY
+python scripts/run_security_eval.py --corpus data/corpus/boe-2024.parquet \
+    --out reports/security_eval
+```
+
 ## API service (Phase 6)
 
 The query pipeline is served by a FastAPI app (`src/boe_rag/service/`). A `RagEngine`
@@ -390,6 +441,23 @@ Run the quality suite (same checks as CI):
 ```bash
 ruff format --check . && ruff check . && mypy && pytest
 ```
+
+### Configuration
+
+All runtime configuration is centralised in a typed
+[pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) model
+(`src/boe_rag/settings.py`) — LLM keys/models, corpus/embeddings/report paths, and the
+optional Langfuse keys. For local development, copy the template and fill in what you need:
+
+```bash
+cp .env.example .env        # Windows PowerShell: Copy-Item .env.example .env
+```
+
+The app and the eval scripts load `.env` at startup (`load_environment()`); a real
+environment variable always overrides the file, and every key is optional. So instead of
+exporting `$env:OPENROUTER_API_KEY` before each command, you can set it once in `.env`. In
+production (the HF Space) nothing changes — the keys come from the Space secrets as ordinary
+environment variables. `.env` is git-ignored and never committed.
 
 ## Author
 

@@ -79,16 +79,18 @@ All `relevant_chunk_ids` resolve to a row in the
 ## Baseline numbers
 
 Dense retrieval with `intfloat/multilingual-e5-small` over the 2024 corpus
-(`scripts/run_eval.py`, k = 10):
+(`scripts/run_eval.py`, k = 10). Brackets are 95% bootstrap confidence intervals:
 
 | Split | Queries | Recall@10 | MRR | nDCG@10 |
 |---|---|---|---|---|
-| `seed` | 20 | 0.90 | 0.749 | — |
-| `generated` | 1,749 | 0.963 | 0.827 | 0.860 |
+| `seed` | 20 | 0.900 [0.750, 1.000] | 0.749 [0.584, 0.900] | — |
+| `generated` | 1,749 | 0.963 [0.954, 0.972] | 0.827 [0.813, 0.842] | 0.860 |
 
 The silver split scores higher because each question is derived from a single chunk,
 which makes the target easier to recover; treat it as a high-power relative-comparison
-instrument, and the seed split as the absolute bar.
+instrument, and the seed split as the absolute bar. The CIs show why: on 20 gold
+questions the error bars are wide (a 0.05 gap is within noise), while the 1,749 silver
+examples shrink them ~10×.
 
 ## Limitations
 
