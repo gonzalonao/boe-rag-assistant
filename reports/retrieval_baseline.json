@@ -5,5 +5,17 @@
   "precision_at_k": 0.09,
   "hit_rate_at_k": 0.9,
   "mrr": 0.7491666666666666,
-  "ndcg_at_k": 0.7833247437591728
+  "ndcg_at_k": 0.7833247437591728,
+  "recall_at_k_ci": {
+    "point": 0.9,
+    "low": 0.75,
+    "high": 1.0,
+    "confidence": 0.95
+  },
+  "mrr_ci": {
+    "point": 0.7491666666666668,
+    "low": 0.5841666666666667,
+    "high": 0.9,
+    "confidence": 0.95
+  }
 }
