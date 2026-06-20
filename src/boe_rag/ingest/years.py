@@ -21,6 +21,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from boe_rag.ingest.corpus import CORPUS_SCHEMA
+
 logger = logging.getLogger(__name__)
 
 #: Corpus column that uniquely identifies a chunk (used to de-duplicate shards).
@@ -116,8 +118,14 @@ def merge_shards(paths: Sequence[Path], out: Path) -> int:
     Returns:
         The number of unique chunks written.
     """
+    # Cast every shard to the canonical schema before concatenating: shards written
+    # before the schema was pinned can carry a `null`-typed optional column (e.g. a
+    # year with no `titulo`), which would otherwise fail to concat against a
+    # `string`-typed column from another year.
     tables = [
         pq.read_table(path)  # type: ignore[no-untyped-call]
+        .select(list(CORPUS_SCHEMA.names))
+        .cast(CORPUS_SCHEMA)
         for path in paths
         if path.is_file()
     ]
