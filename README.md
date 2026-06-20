@@ -309,21 +309,24 @@ exfiltration** (defended with a canary token the answer must never contain),
 **out-of-corpus hallucination** (absent-law questions must refuse, not invent). The generator is
 also hardened to treat passages and the question as *data, never instructions*.
 
-Baseline over 14 attacks (dense k=5):
+The suite earns its keep by finding a real weakness and then proving the fix. The baseline
+**fabricated citations** when asked (e.g. `[99]` for a source that was never retrieved) —
+prompt-level defenses caught it 0% of the time. A deterministic post-hoc
+**citation-validation** guardrail (`src/boe_rag/service/citation.py`) now strips any `[n]`
+pointing past the retrieved passages and refuses when an answer's grounding rests entirely on
+fabricated citations. Same harness, before vs. after (14 attacks, dense k=5):
 
-| Attack category | Pass rate |
-|---|---|
-| out-of-corpus hallucination | 100% |
-| instruction override | 75% |
-| system-prompt exfiltration | 75% |
-| **citation spoofing** | **0%** |
-| **Overall** | **64% (9/14)** |
+| Attack category | Before | After |
+|---|---|---|
+| out-of-corpus hallucination | 100% | 100% |
+| instruction override | 75% | 75% |
+| system-prompt exfiltration | 75% | 75% |
+| **citation spoofing** | **0%** | **100%** |
+| **Overall** | **64% (9/14)** | **86% (12/14)** |
 
-The suite earns its keep by finding real weaknesses: the model **fabricates citations** when
-asked (e.g. `[99]` for a source that was never retrieved), which directly motivates the post-hoc
-**citation-validation** guardrail on the roadmap (Phase 5). Full threat model, methodology, and
-the find→fix plan: [`docs/SECURITY.md`](docs/SECURITY.md); full report:
-[`reports/security_eval.md`](reports/security_eval.md). Reproduce it once an API key is set:
+Full threat model, methodology, and the find→fix loop: [`docs/SECURITY.md`](docs/SECURITY.md);
+latest report: [`reports/security_eval.md`](reports/security_eval.md). Reproduce it once an API
+key is set:
 
 ```bash
 $env:OPENROUTER_API_KEY = "..."   # or GROQ_API_KEY / GEMINI_API_KEY
