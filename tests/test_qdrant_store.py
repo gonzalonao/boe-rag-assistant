@@ -48,6 +48,7 @@ class _FakeClient:
         self._points = points
         self.last_query: list[float] | None = None
         self.last_limit: int | None = None
+        self.last_search_params: object | None = None
 
     def query_points(
         self,
@@ -56,10 +57,12 @@ class _FakeClient:
         query: Sequence[float],
         limit: int,
         with_payload: bool,
+        search_params: object | None = None,
     ) -> _FakeResponse:
         """Return up to ``limit`` canned points, recording the call."""
         self.last_query = list(query)
         self.last_limit = limit
+        self.last_search_params = search_params
         return _FakeResponse(points=list(self._points)[:limit])
 
 
@@ -111,6 +114,22 @@ def test_search_passes_k_as_limit_and_encodes_query_once() -> None:
     assert client.last_limit == 2
     assert client.last_query is not None and len(client.last_query) == _DIM
     assert embedder.query_calls == 1
+
+
+def test_search_forwards_search_params() -> None:
+    """An injected search_params (e.g. exact=True) reaches the client call."""
+    client = _FakeClient(_points())
+    sentinel = object()
+    searcher = QdrantSearcher(client, "boe", _FakeEmbedder(), sentinel)
+    searcher.search("q", k=1)
+    assert client.last_search_params is sentinel
+
+
+def test_search_defaults_search_params_to_none() -> None:
+    """Without explicit params the client receives None (Qdrant's default)."""
+    client = _FakeClient(_points())
+    QdrantSearcher(client, "boe", _FakeEmbedder()).search("q", k=1)
+    assert client.last_search_params is None
 
 
 def test_search_raises_when_payload_missing_chunk_id() -> None:

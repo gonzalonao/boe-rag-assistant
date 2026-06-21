@@ -148,6 +148,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Qdrant collection to search when --qdrant-url/--qdrant-path is given.",
     )
+    parser.add_argument(
+        "--qdrant-exact",
+        action="store_true",
+        help="Force Qdrant exact (brute-force) search for a faithful parity "
+        "check against the exact NumPy index; default uses approximate HNSW.",
+    )
     parser.add_argument("--k", type=int, default=10, help="Cut-off for @k metrics.")
     parser.add_argument(
         "--retrieve-n", type=int, default=20, help="Candidates retrieved per query."
@@ -181,12 +187,6 @@ def main(argv: list[str] | None = None) -> int:
 
     chunk_ids, texts = _load_corpus(args.corpus)
     examples = load_evalset(args.evalset)
-    precomputed: tuple[list[str], FloatMatrix] | None = None
-    if args.embeddings is not None:
-        logger.info("Loading precomputed embeddings from %s ...", args.embeddings)
-        precomputed = load_embeddings(args.embeddings)
-    else:
-        logger.info("Embedding %d chunks with %s ...", len(chunk_ids), args.model)
     embedder = E5Embedder(args.model)
     if (args.qdrant_url or args.qdrant_path) and args.qdrant_collection:
         location = args.qdrant_url or f"path:{args.qdrant_path}"
@@ -200,11 +200,18 @@ def main(argv: list[str] | None = None) -> int:
             embedder,
             url=args.qdrant_url,
             path=args.qdrant_path,
+            exact=args.qdrant_exact,
         )
         metrics, results = evaluate_searcher(
             searcher, examples, k=args.k, retrieve_n=args.retrieve_n
         )
     else:
+        precomputed: tuple[list[str], FloatMatrix] | None = None
+        if args.embeddings is not None:
+            logger.info("Loading precomputed embeddings from %s ...", args.embeddings)
+            precomputed = load_embeddings(args.embeddings)
+        else:
+            logger.info("Embedding %d chunks with %s ...", len(chunk_ids), args.model)
         metrics, results = run_retrieval_eval(
             chunk_ids,
             texts,
