@@ -22,6 +22,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from boe_rag.eval.dataset import load_evalset
 from boe_rag.eval.embedding import DEFAULT_MODEL, E5Embedder
 from boe_rag.eval.metrics import RetrievalMetrics, recall_at_k, reciprocal_rank
+from boe_rag.eval.retriever import FloatMatrix, load_embeddings
 from boe_rag.eval.runner import ExampleResult, run_retrieval_eval
 from boe_rag.eval.stats import BootstrapCI, bootstrap_mean_ci
 
@@ -116,6 +117,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Golden eval set .jsonl.",
     )
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Embedding model id.")
+    parser.add_argument(
+        "--embeddings",
+        type=Path,
+        default=None,
+        help="Optional precomputed passage embeddings .npz. When its ids match "
+        "the corpus, retrieval is scored without re-encoding (queries are still "
+        "encoded live); a mismatch falls back to encoding.",
+    )
     parser.add_argument("--k", type=int, default=10, help="Cut-off for @k metrics.")
     parser.add_argument(
         "--retrieve-n", type=int, default=20, help="Candidates retrieved per query."
@@ -149,10 +158,21 @@ def main(argv: list[str] | None = None) -> int:
 
     chunk_ids, texts = _load_corpus(args.corpus)
     examples = load_evalset(args.evalset)
-    logger.info("Embedding %d chunks with %s ...", len(chunk_ids), args.model)
+    precomputed: tuple[list[str], FloatMatrix] | None = None
+    if args.embeddings is not None:
+        logger.info("Loading precomputed embeddings from %s ...", args.embeddings)
+        precomputed = load_embeddings(args.embeddings)
+    else:
+        logger.info("Embedding %d chunks with %s ...", len(chunk_ids), args.model)
     embedder = E5Embedder(args.model)
     metrics, results = run_retrieval_eval(
-        chunk_ids, texts, examples, embedder, k=args.k, retrieve_n=args.retrieve_n
+        chunk_ids,
+        texts,
+        examples,
+        embedder,
+        k=args.k,
+        retrieve_n=args.retrieve_n,
+        precomputed=precomputed,
     )
     recall_ci, mrr_ci = _confidence_intervals(
         results, args.k, n_resamples=args.bootstrap_resamples, seed=args.seed

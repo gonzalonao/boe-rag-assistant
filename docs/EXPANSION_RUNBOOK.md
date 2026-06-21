@@ -21,8 +21,14 @@ and narrows coverage (e.g. missing foundational laws like Ley 39/2015). Widening
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e .[dev,ml,hub]
-huggingface-cli login        # needs write access to gonzalonao/boe-corpus
+# Authenticate to the Hub. App-Control blocks the huggingface-cli .exe shim, so
+# invoke it through the interpreter (it persists the token to disk afterwards):
+.\.venv\Scripts\python.exe -m huggingface_hub.commands.huggingface_cli login
 ```
+
+> A `protobuf` dependency-conflict warning from pip (opentelemetry-proto vs the `ml`
+> extra) is expected and harmless here — it only affects the optional `obs`/Langfuse
+> path, which the crawl, publish, and embedding steps never touch.
 
 **Step 1 — Crawl, year by year (resumable).**
 This is the long step: the BOE API is crawled politely (~0.5 s/request), so a decade of
@@ -43,7 +49,7 @@ re-run skips years already done, so you can stop with `Ctrl+C` and resume anytim
 **Step 2 — Sanity-check the merged corpus.**
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/inspect_corpus.py --parquet data/corpus/boe-2015-present.parquet
+.\.venv\Scripts\python.exe scripts/inspect_corpus.py data/corpus/boe-2015-present.parquet
 ```
 
 Confirm the chunk count jumped (expect 10–50× the 2,225 of the 2024 slice) and spot-check a

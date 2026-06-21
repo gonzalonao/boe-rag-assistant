@@ -18,12 +18,29 @@ from boe_rag.ingest.years import (
 )
 
 
-def _write_shard(path: Path, chunk_ids: list[str]) -> None:
-    """Write a minimal corpus-like Parquet shard with the given chunk ids."""
+def _write_shard(
+    path: Path, chunk_ids: list[str], *, titulo_null: bool = False
+) -> None:
+    """Write a corpus-shaped Parquet shard with the given chunk ids.
+
+    With ``titulo_null`` the optional ``titulo`` column is all-None and written
+    *without* an explicit schema, so pyarrow infers a ``null`` type — reproducing
+    the cross-shard schema mismatch the merge must tolerate.
+    """
+    n = len(chunk_ids)
     table = pa.table(
         {
             "chunk_id": chunk_ids,
+            "document_id": ["doc"] * n,
+            "document_title": ["Title"] * n,
             "text": [f"text-{cid}" for cid in chunk_ids],
+            "ordinal": list(range(n)),
+            "titulo": [None] * n if titulo_null else ["Titulo I"] * n,
+            "capitulo": [None] * n,
+            "seccion": [None] * n,
+            "articulo": ["Articulo 1"] * n,
+            "citation": ["Cite"] * n,
+            "url_html": ["http://x"] * n,
         }
     )
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,6 +123,21 @@ def test_merge_shards_deduplicates_by_chunk_id(tmp_path: Path) -> None:
     assert total == 3
     merged = pq.read_table(out).to_pydict()  # type: ignore[no-untyped-call]
     assert merged["chunk_id"] == ["x::0001", "x::0002", "x::0003"]
+
+
+def test_merge_shards_unifies_null_typed_columns(tmp_path: Path) -> None:
+    """An all-null column in one shard still merges (schema-mismatch regression)."""
+    a = tmp_path / "boe-2015.parquet"
+    b = tmp_path / "boe-2016.parquet"
+    _write_shard(a, ["x::0001"], titulo_null=True)  # `titulo` inferred as null type
+    _write_shard(b, ["y::0001"])  # `titulo` is string
+    out = tmp_path / "merged.parquet"
+
+    total = merge_shards([a, b], out)
+
+    assert total == 2
+    merged = pq.read_table(out)  # type: ignore[no-untyped-call]
+    assert merged.schema.field("titulo").type == pa.string()
 
 
 def test_merge_shards_skips_missing_paths(tmp_path: Path) -> None:

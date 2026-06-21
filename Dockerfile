@@ -39,9 +39,13 @@ COPY --chown=user reports ./reports
 COPY --chown=user scripts ./scripts
 
 # Bake the corpus, precomputed embeddings, and model weights into the image.
+# The embeddings matrix is fetched (not recomputed) so the build does not encode
+# the whole corpus on CPU — that scales with the corpus and risks build timeouts.
+# It is republished in lock-step with the corpus; app.build_engine re-encodes at
+# boot if the ids ever fail to match, so a stale matrix can't serve wrong results.
 ARG CORPUS_REPO_ID=gonzalonao/boe-corpus
 RUN python scripts/fetch_corpus.py --repo-id "${CORPUS_REPO_ID}" --out "${BOE_CORPUS_PATH}" \
- && python scripts/precompute_embeddings.py --corpus "${BOE_CORPUS_PATH}" --out "${BOE_EMBEDDINGS_PATH}" \
+ && python scripts/fetch_embeddings.py --repo-id "${CORPUS_REPO_ID}" --out "${BOE_EMBEDDINGS_PATH}" \
  && python scripts/warm_models.py
 
 EXPOSE 7860
