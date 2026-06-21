@@ -24,7 +24,7 @@ concrete client is constructed only at the edges — :func:`connect_searcher` an
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Protocol
+from typing import Protocol, cast
 
 from boe_rag.eval.retriever import Embedder
 
@@ -165,4 +165,7 @@ def connect_searcher(
     from qdrant_client import QdrantClient
 
     client = QdrantClient(url=url, api_key=api_key)
-    return QdrantSearcher(client, collection, embedder)
+    # QdrantClient.query_points has a far broader signature than we use; this
+    # searcher only ever calls it with (collection, query=, limit=, with_payload=),
+    # which the real client accepts, so narrow it to the protocol we depend on.
+    return QdrantSearcher(cast(VectorSearchClient, client), collection, embedder)

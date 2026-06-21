@@ -161,7 +161,7 @@ of CI. Quality *scores* (LLM-judge faithfulness, 👍/👎) are a planned follow
 | Current choice | Why (now) | Planned swap (when) | Seam |
 |---|---|---|---|
 | In-memory NumPy dense + BM25 | ~25K chunks fit in RAM; zero infra | **Qdrant** on-disk dense leg ✓ available (opt-in) | `Searcher` |
-| Off-the-shelf `multilingual-e5-small` | strong baseline, no training | **fine-tuned** Spanish-legal E5 + ONNX int8 | `Embedder` |
+| Off-the-shelf `multilingual-e5-small` | strong baseline, no training | **fine-tuned** Spanish-legal E5 (tooling built; ships only on a CI-significant gold win) + ONNX int8 | `Embedder` |
 | sentence-transformers cross-encoder | accurate, simple | **ONNX int8** cross-encoder | `Reranker` |
 | **2015–present** corpus (25,419 chunks) ✓ shipped | removed the 2024-slice saturation ceiling | full daily-refresh ingestion | corpus artifact |
 | Custom metrics + LLM-judge | transparent, dependency-free | **RAGAS** alongside | `eval/` |

@@ -132,27 +132,64 @@ run the index-build script once, set the two env vars in `.env`. I'll hand you e
 
 ---
 
-## Arc 6 — Embedding fine-tune on the RTX 5070 (staged — build after Arc 4)
+## Arc 6 — Embedding fine-tune on the RTX 5070 (tooling BUILT — run on the GPU)
 
 **Why:** the single most differentiating ML artifact — a domain-tuned Spanish-legal
-embedding model with a measured before/after beats any off-the-shelf demo. Needs the wider
-corpus first so the training signal and the win are credible.
+embedding model with a measured before/after beats any off-the-shelf demo. The wider corpus
+(Arc 4) gives the training signal; the held-out gold set keeps the win honest.
 
-**Plan (what I'll build):**
-1. Mine training pairs from the corpus + the silver eval set: (question, positive chunk)
-   with hard negatives drawn from BM25 near-misses.
-2. A fine-tune script (`scripts/finetune_embeddings.py`) using sentence-transformers
-   `MultipleNegativesRankingLoss` on top of `multilingual-e5-small`, configured for a 12 GB
-   card (batch size, fp16, gradient checkpointing).
-3. Evaluate the tuned model on the **gold** set with the existing harness + bootstrap CIs
-   (`eval/stats.py`), producing an honest before/after table; only ship if it wins.
-4. Publish to `gonzalonao/boe-embeddings-e5` with a model card carrying that table, then
-   point `E5Embedder` at it (constructor/`--model` change) and re-precompute + redeploy.
-5. Optional follow-on: ONNX int8 export for CPU-latency (Arc 7).
+**What's built (on `develop`):**
+- `src/boe_rag/eval/mine_pairs.py` — mines `(question, positive-chunk, hard-negatives)` pairs
+  from the **silver** eval set (`eval_data/generated_evalset.jsonl`), with hard negatives
+  drawn from BM25 near-misses (the confusable passages the dense model most needs to separate).
+  Pure + unit-tested; also lays the pairs out as a rectangular, E5-prefixed training dataset.
+- `scripts/finetune_embeddings.py` — `SentenceTransformerTrainer` +
+  `MultipleNegativesRankingLoss` on `multilingual-e5-small`, 12 GB config (fp16,
+  `no_duplicates` batch sampler). Needs the `ml` + `train` extras.
+- `src/boe_rag/eval/compare.py` + `scripts/compare_models.py` — the go/no-go gate: scores
+  base vs tuned on the **gold** set (`eval_data/seed_evalset.jsonl`, held out from training)
+  and judges the difference with a paired bootstrap CI + sign-flip permutation test
+  (`eval/stats.py`). Ships only on a significant recall@10 win (exit 0 = ship, 2 = no-ship).
 
-**Your side when it's ready:** a GPU training run on your machine (I'll give exact
-commands, expected VRAM/runtime, and the go/no-go metric gate); everything else — pair
-mining, eval, publishing wiring — is mine.
+> **Train/eval split:** train on the 1,749-example silver set, evaluate on the 20 hand-curated
+> gold questions. The gold *queries* are held out; some corpus chunks may appear as positives
+> in both (you are teaching the model the corpus), so the gold metric measures generalisation
+> to unseen queries — noted honestly in the model card.
+
+**Your side — the GPU run (detailed steps).** PowerShell from the repo root, venv interpreter.
+
+1. Pull and install the training extras (on top of your existing cu128 torch):
+   ```powershell
+   git checkout develop; git pull origin develop
+   .\.venv\Scripts\python.exe -m pip install -e ".[ml,train]"
+   ```
+2. Fine-tune (≈ a few minutes on the 5070; e5-small is 118 M params):
+   ```powershell
+   .\.venv\Scripts\python.exe scripts/finetune_embeddings.py `
+       --corpus data/corpus/boe-2015-present.parquet `
+       --train-evalset eval_data/generated_evalset.jsonl `
+       --out models/boe-e5-small `
+       --epochs 1 --batch-size 64 --num-negatives 4 `
+       --pairs-out data/train/boe_pairs.jsonl
+   ```
+   Watch VRAM; if it OOMs, drop `--batch-size` to 32. Output model lands in `models/boe-e5-small`.
+3. **Go/no-go** — score tuned vs base on the gold set (encodes the 25K corpus twice):
+   ```powershell
+   .\.venv\Scripts\python.exe scripts/compare_models.py `
+       --corpus data/corpus/boe-2015-present.parquet `
+       --evalset eval_data/seed_evalset.jsonl `
+       --candidate-model models/boe-e5-small `
+       --out reports/finetune_compare
+   ```
+   Read the printed verdict + `reports/finetune_compare.md`. **Send me the table.**
+4. **Only if it ships** (significant recall@10 gain): I then wire publishing —
+   `gonzalonao/boe-embeddings-e5` with the before/after model card, repoint `E5Embedder`'s
+   default model, re-precompute the `.npz`, republish, and tag a release to redeploy. If it
+   does **not** win, we keep the off-the-shelf model and record the honest null result (still
+   a portfolio-worthy "measured, didn't ship" story) — then iterate (more epochs, more
+   negatives, larger batch, or LoRA).
+
+**Optional follow-on:** ONNX int8 export for CPU latency (Arc 7).
 
 ---
 
