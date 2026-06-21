@@ -11,12 +11,14 @@ This is a **GPU workflow**, not run in CI: it needs the ``ml`` and ``train`` ext
 honestly with ``scripts/compare_models.py`` (paired significance on the gold set)
 and ship only if it wins.
 
-Example (RTX 5070, 12 GB):
+Example (RTX 5070, 12 GB) — a large batch matters for MNRL, so cap the sequence
+length and turn on gradient checkpointing to fit one:
     python scripts/finetune_embeddings.py \
         --corpus data/corpus/boe-2015-present.parquet \
         --train-evalset eval_data/generated_evalset.jsonl \
         --out models/boe-e5-small \
-        --epochs 1 --batch-size 64 --num-negatives 4
+        --epochs 3 --batch-size 64 --num-negatives 4 \
+        --max-seq-length 256 --grad-checkpointing
 """
 
 from __future__ import annotations
@@ -105,6 +107,13 @@ def train(args: argparse.Namespace) -> Path:
 
     logger.info("Loading base model %s ...", args.model)
     model = SentenceTransformer(args.model, device=args.device)
+    if args.max_seq_length is not None:
+        # Shorter sequences cut activation memory roughly linearly, which is what
+        # lets a larger physical batch fit on a 12 GB card. MNRL's contrastive
+        # signal scales with batch size, so trading a little tail context for a
+        # bigger batch is usually the right call for short BOE chunks.
+        model.max_seq_length = args.max_seq_length
+        logger.info("Capped max_seq_length at %d tokens", args.max_seq_length)
     loss = losses.MultipleNegativesRankingLoss(model)
 
     training_args = SentenceTransformerTrainingArguments(
@@ -114,6 +123,9 @@ def train(args: argparse.Namespace) -> Path:
         learning_rate=args.lr,
         warmup_ratio=args.warmup_ratio,
         fp16=args.fp16,
+        # Recompute activations in the backward pass instead of storing them:
+        # trades ~20-30% compute for a large memory saving, letting the batch grow.
+        gradient_checkpointing=args.grad_checkpointing,
         # MNRL must not see the same positive twice in a batch (it would become a
         # false negative for another anchor); this sampler guarantees uniqueness.
         batch_sampler="no_duplicates",  # type: ignore[arg-type]
@@ -188,6 +200,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr", type=float, default=2e-5, help="Learning rate.")
     parser.add_argument(
         "--warmup-ratio", type=float, default=0.1, help="LR warmup fraction."
+    )
+    parser.add_argument(
+        "--max-seq-length",
+        type=int,
+        default=None,
+        help="Cap input tokens (e.g. 256) to fit a larger batch; default if unset.",
+    )
+    parser.add_argument(
+        "--grad-checkpointing",
+        action="store_true",
+        help="Trade compute for memory (recompute activations) to fit a larger batch.",
     )
     parser.add_argument(
         "--no-fp16",
