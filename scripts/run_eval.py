@@ -138,9 +138,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--qdrant-collection and the `qdrant` extra.",
     )
     parser.add_argument(
+        "--qdrant-path",
+        default=None,
+        help="Score the dense leg from a local embedded Qdrant at this directory "
+        "(no server/Docker). Alternative to --qdrant-url.",
+    )
+    parser.add_argument(
         "--qdrant-collection",
         default=None,
-        help="Qdrant collection to search when --qdrant-url is given.",
+        help="Qdrant collection to search when --qdrant-url/--qdrant-path is given.",
     )
     parser.add_argument("--k", type=int, default=10, help="Cut-off for @k metrics.")
     parser.add_argument(
@@ -182,13 +188,19 @@ def main(argv: list[str] | None = None) -> int:
     else:
         logger.info("Embedding %d chunks with %s ...", len(chunk_ids), args.model)
     embedder = E5Embedder(args.model)
-    if args.qdrant_url and args.qdrant_collection:
+    if (args.qdrant_url or args.qdrant_path) and args.qdrant_collection:
+        location = args.qdrant_url or f"path:{args.qdrant_path}"
         logger.info(
             "Scoring the dense leg from Qdrant '%s' at %s ...",
             args.qdrant_collection,
-            args.qdrant_url,
+            location,
         )
-        searcher = connect_searcher(args.qdrant_url, args.qdrant_collection, embedder)
+        searcher = connect_searcher(
+            args.qdrant_collection,
+            embedder,
+            url=args.qdrant_url,
+            path=args.qdrant_path,
+        )
         metrics, results = evaluate_searcher(
             searcher, examples, k=args.k, retrieve_n=args.retrieve_n
         )
