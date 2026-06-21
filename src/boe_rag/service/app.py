@@ -82,18 +82,28 @@ def _index_dense(ids: list[str], texts: list[str]) -> DenseRetriever:
 def _build_dense_leg(ids: list[str], texts: list[str]) -> Searcher:
     """Build the dense retrieval leg, preferring Qdrant when configured.
 
-    When ``QDRANT_URL`` (and ``QDRANT_COLLECTION``) are set, the dense leg is
-    served from a Qdrant collection — assumed already populated by
+    When ``QDRANT_COLLECTION`` and either ``QDRANT_URL`` (a server) or
+    ``QDRANT_PATH`` (a local embedded instance) are set, the dense leg is served
+    from a Qdrant collection — assumed already populated by
     ``scripts/build_qdrant_index.py`` from the same embeddings — instead of the
     in-memory NumPy index. The collection must hold vectors from the same model
     :class:`E5Embedder` queries with. Otherwise the NumPy path is used unchanged.
     """
     url = _SETTINGS.qdrant_url
+    path = _SETTINGS.qdrant_path
     collection = _SETTINGS.qdrant_collection
-    if url and collection:
-        logger.info("Serving the dense leg from Qdrant '%s' at %s", collection, url)
+    if (url or path) and collection:
+        logger.info(
+            "Serving the dense leg from Qdrant '%s' at %s",
+            collection,
+            url or path,
+        )
         return connect_searcher(
-            url, collection, E5Embedder(), api_key=_SETTINGS.qdrant_api_key
+            collection,
+            E5Embedder(),
+            url=url,
+            path=path,
+            api_key=_SETTINGS.qdrant_api_key,
         )
     return _index_dense(ids, texts)
 

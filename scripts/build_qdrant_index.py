@@ -42,18 +42,24 @@ DEFAULT_BATCH_SIZE = 256
 def build_index(
     embeddings: Path,
     *,
-    url: str,
+    url: str | None,
+    path: str | None,
     collection: str,
     api_key: str | None,
     batch_size: int,
 ) -> int:
     """Create (or recreate) the collection and upsert every embedding.
 
+    Connects to a Qdrant server (``url``) or a local embedded on-disk instance
+    (``path``); exactly one must be given. The client is closed before returning
+    so an embedded ``path`` instance releases its lock for the next process.
+
     Args:
         embeddings: Path to the precomputed ``.npz`` (ids + matrix).
-        url: Base URL of the running Qdrant instance.
+        url: Base URL of a running Qdrant server.
+        path: Directory for a local embedded Qdrant instance.
         collection: Target collection name; recreated if it already exists.
-        api_key: Optional API key for a secured deployment.
+        api_key: Optional API key for a secured server.
         batch_size: Number of points per upsert request.
 
     Returns:
@@ -63,7 +69,11 @@ def build_index(
     num_points, dim = matrix.shape
     logger.info("Loaded %d x %d embeddings from %s", num_points, dim, embeddings)
 
-    client = QdrantClient(url=url, api_key=api_key)
+    client = (
+        QdrantClient(path=path)
+        if path is not None
+        else QdrantClient(url=url, api_key=api_key)
+    )
     if client.collection_exists(collection):
         client.delete_collection(collection)
     client.create_collection(
@@ -87,6 +97,7 @@ def build_index(
 
     count = client.count(collection_name=collection, exact=True).count
     logger.info("Collection '%s' now holds %d points", collection, count)
+    client.close()  # release the embedded on-disk lock for the next process
     return count
 
 
@@ -104,8 +115,14 @@ def main(argv: list[str] | None = None) -> int:
         default=Path("data/corpus/boe-2015-present-embeddings.npz"),
         help="Precomputed embeddings .npz (ids + matrix).",
     )
-    parser.add_argument(
-        "--url", default="http://localhost:6333", help="Qdrant base URL."
+    location = parser.add_mutually_exclusive_group()
+    location.add_argument(
+        "--url", default=None, help="Qdrant server URL (default localhost:6333)."
+    )
+    location.add_argument(
+        "--path",
+        default=None,
+        help="Directory for a local embedded Qdrant (no server/Docker).",
     )
     parser.add_argument(
         "--collection", default="boe_chunks", help="Target collection name."
@@ -125,11 +142,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: embeddings not found: {args.embeddings}", file=sys.stderr)
         return 1
 
+    url = args.url
+    if url is None and args.path is None:
+        url = "http://localhost:6333"  # default to a local server when unspecified
+
     _, matrix = load_embeddings(args.embeddings)
     expected = matrix.shape[0]
     count = build_index(
         args.embeddings,
-        url=args.url,
+        url=url,
+        path=args.path,
         collection=args.collection,
         api_key=args.api_key,
         batch_size=args.batch_size,

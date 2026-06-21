@@ -139,32 +139,44 @@ class QdrantSearcher:
 
 
 def connect_searcher(
-    url: str,
     collection: str,
     embedder: Embedder,
     *,
+    url: str | None = None,
+    path: str | None = None,
     api_key: str | None = None,
 ) -> QdrantSearcher:
-    """Connect to a running Qdrant and return a ready :class:`QdrantSearcher`.
+    """Connect to Qdrant and return a ready :class:`QdrantSearcher`.
 
-    Imports ``qdrant-client`` lazily so the dependency is needed only when a
-    Qdrant backend is actually requested (the ``qdrant`` extra).
+    Connects to either a Qdrant **server** (``url``) or a **local embedded**
+    on-disk instance (``path``) — the embedded mode runs Qdrant in-process with
+    no server or Docker, which is convenient for local parity checks. Exactly one
+    of ``url`` or ``path`` must be given. ``qdrant-client`` is imported lazily, so
+    the dependency is needed only when a Qdrant backend is actually requested.
 
     Args:
-        url: Base URL of the Qdrant instance (e.g. ``http://localhost:6333``).
         collection: Name of the collection to search.
         embedder: Embedder for query encoding.
-        api_key: Optional API key for a secured Qdrant deployment.
+        url: Base URL of a Qdrant server (e.g. ``http://localhost:6333``).
+        path: Directory of a local embedded Qdrant instance.
+        api_key: Optional API key for a secured server deployment (``url`` only).
 
     Returns:
         A searcher bound to a live client.
 
     Raises:
+        ValueError: If not exactly one of ``url`` / ``path`` is provided.
         ModuleNotFoundError: If the ``qdrant`` extra is not installed.
     """
+    if (url is None) == (path is None):
+        raise ValueError("provide exactly one of url= or path=")
     from qdrant_client import QdrantClient
 
-    client = QdrantClient(url=url, api_key=api_key)
+    client = (
+        QdrantClient(path=path)
+        if path is not None
+        else QdrantClient(url=url, api_key=api_key)
+    )
     # QdrantClient.query_points has a far broader signature than we use; this
     # searcher only ever calls it with (collection, query=, limit=, with_payload=),
     # which the real client accepts, so narrow it to the protocol we depend on.
