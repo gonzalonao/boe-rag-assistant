@@ -39,6 +39,14 @@ ml = [
     "sentencepiece==0.2.1",
     "protobuf==7.35.1",
 ]
+# Fine-tuning the embedding model (Arc 6). Adds the sentence-transformers Trainer
+# deps on top of the `ml` extra; install with `.[ml,train]`. GPU-only workflow —
+# never imported by the service or CI. Floors (not exact pins) so they resolve
+# against whatever CUDA-matched torch is already installed locally.
+train = [
+    "datasets>=2.19,<4",
+    "accelerate>=0.30",
+]
 # On-disk vector backend for the dense leg (Arc 5). Optional: the default
 # serving path uses the in-memory NumPy index and never imports this.
 qdrant = [
