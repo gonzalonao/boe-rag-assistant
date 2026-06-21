@@ -114,6 +114,18 @@ the defenses.
   remains an open research problem, so this is tracked honestly rather than papered
   over.
 
+- **Canary homoglyph evasion (found 2026-06-21, on the live v0.3.0 build).** The
+  canary tripwire (`screen_canary` in `service/safety.py`) does an *exact* substring
+  match for `BOE-GUARD-7F3Q-INTERNAL`. An exfiltration prompt got the model to emit
+  the system prompt with the ASCII hyphens replaced by **non-breaking hyphens**
+  (`U+2011`), so the bytes differed and the tripwire did not fire — the prompt leaked.
+  Any homoglyph or separator substitution (dashes, spaces, zero-width characters,
+  Unicode look-alike letters) defeats the exact match the same way. Planned fix:
+  normalize both the answer and the canary before comparison — Unicode `NFKC`,
+  casefold, and collapse separator/whitespace runs (with a residual, honestly-noted
+  gap for full Latin look-alike *letter* substitution, which needs a confusables
+  fold). Tracked for a `v0.3.1` hardening pass; not yet shipped.
+
 ## Scope and non-goals
 
 - This protects answer integrity, not infrastructure: the service also has
