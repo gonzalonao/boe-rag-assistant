@@ -22,8 +22,13 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from boe_rag.eval.dataset import load_evalset
 from boe_rag.eval.embedding import DEFAULT_MODEL, E5Embedder
 from boe_rag.eval.metrics import RetrievalMetrics, recall_at_k, reciprocal_rank
+from boe_rag.eval.qdrant_store import connect_searcher
 from boe_rag.eval.retriever import FloatMatrix, load_embeddings
-from boe_rag.eval.runner import ExampleResult, run_retrieval_eval
+from boe_rag.eval.runner import (
+    ExampleResult,
+    evaluate_searcher,
+    run_retrieval_eval,
+)
 from boe_rag.eval.stats import BootstrapCI, bootstrap_mean_ci
 
 logger = logging.getLogger(__name__)
@@ -125,6 +130,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "the corpus, retrieval is scored without re-encoding (queries are still "
         "encoded live); a mismatch falls back to encoding.",
     )
+    parser.add_argument(
+        "--qdrant-url",
+        default=None,
+        help="Score the dense leg from a Qdrant collection at this URL instead "
+        "of the in-memory NumPy index (proves backend parity). Requires "
+        "--qdrant-collection and the `qdrant` extra.",
+    )
+    parser.add_argument(
+        "--qdrant-collection",
+        default=None,
+        help="Qdrant collection to search when --qdrant-url is given.",
+    )
     parser.add_argument("--k", type=int, default=10, help="Cut-off for @k metrics.")
     parser.add_argument(
         "--retrieve-n", type=int, default=20, help="Candidates retrieved per query."
@@ -165,15 +182,26 @@ def main(argv: list[str] | None = None) -> int:
     else:
         logger.info("Embedding %d chunks with %s ...", len(chunk_ids), args.model)
     embedder = E5Embedder(args.model)
-    metrics, results = run_retrieval_eval(
-        chunk_ids,
-        texts,
-        examples,
-        embedder,
-        k=args.k,
-        retrieve_n=args.retrieve_n,
-        precomputed=precomputed,
-    )
+    if args.qdrant_url and args.qdrant_collection:
+        logger.info(
+            "Scoring the dense leg from Qdrant '%s' at %s ...",
+            args.qdrant_collection,
+            args.qdrant_url,
+        )
+        searcher = connect_searcher(args.qdrant_url, args.qdrant_collection, embedder)
+        metrics, results = evaluate_searcher(
+            searcher, examples, k=args.k, retrieve_n=args.retrieve_n
+        )
+    else:
+        metrics, results = run_retrieval_eval(
+            chunk_ids,
+            texts,
+            examples,
+            embedder,
+            k=args.k,
+            retrieve_n=args.retrieve_n,
+            precomputed=precomputed,
+        )
     recall_ci, mrr_ci = _confidence_intervals(
         results, args.k, n_resamples=args.bootstrap_resamples, seed=args.seed
     )

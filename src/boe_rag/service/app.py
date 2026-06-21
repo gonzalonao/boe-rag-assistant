@@ -31,7 +31,8 @@ import pyarrow.parquet as pq
 from boe_rag.eval.cross_encoder import CrossEncoderReranker
 from boe_rag.eval.embedding import E5Embedder
 from boe_rag.eval.hybrid import HybridRetriever
-from boe_rag.eval.retriever import DenseRetriever, load_embeddings
+from boe_rag.eval.qdrant_store import connect_searcher
+from boe_rag.eval.retriever import DenseRetriever, Searcher, load_embeddings
 from boe_rag.eval.sparse import BM25Index
 from boe_rag.llm.base import LLMError
 from boe_rag.llm.factory import FallbackProvider, build_available_providers
@@ -76,6 +77,25 @@ def _index_dense(ids: list[str], texts: list[str]) -> DenseRetriever:
         )
     dense.index(ids, texts)
     return dense
+
+
+def _build_dense_leg(ids: list[str], texts: list[str]) -> Searcher:
+    """Build the dense retrieval leg, preferring Qdrant when configured.
+
+    When ``QDRANT_URL`` (and ``QDRANT_COLLECTION``) are set, the dense leg is
+    served from a Qdrant collection — assumed already populated by
+    ``scripts/build_qdrant_index.py`` from the same embeddings — instead of the
+    in-memory NumPy index. The collection must hold vectors from the same model
+    :class:`E5Embedder` queries with. Otherwise the NumPy path is used unchanged.
+    """
+    url = _SETTINGS.qdrant_url
+    collection = _SETTINGS.qdrant_collection
+    if url and collection:
+        logger.info("Serving the dense leg from Qdrant '%s' at %s", collection, url)
+        return connect_searcher(
+            url, collection, E5Embedder(), api_key=_SETTINGS.qdrant_api_key
+        )
+    return _index_dense(ids, texts)
 
 
 def _load_corpus(
@@ -123,7 +143,7 @@ def build_engine(corpus_path: Path | None = None) -> RagEngine:
     ids, texts, lookup = _load_corpus(path)
 
     logger.info("Indexing %d chunks ...", len(ids))
-    dense = _index_dense(ids, texts)
+    dense = _build_dense_leg(ids, texts)
     bm25 = BM25Index()
     bm25.index(ids, texts)
     hybrid = HybridRetriever(dense, bm25)
