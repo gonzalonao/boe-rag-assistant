@@ -134,9 +134,11 @@ class _FakeEmbedder:
 
 def _hybrid() -> HybridRetriever:
     """Build a hybrid retriever over the toy corpus."""
-    hybrid = HybridRetriever(DenseRetriever(_FakeEmbedder()), BM25Index())
-    hybrid.index(_CORPUS_IDS, _CORPUS_TEXTS)
-    return hybrid
+    dense = DenseRetriever(_FakeEmbedder())
+    dense.index(_CORPUS_IDS, _CORPUS_TEXTS)
+    sparse = BM25Index()
+    sparse.index(_CORPUS_IDS, _CORPUS_TEXTS)
+    return HybridRetriever(dense, sparse)
 
 
 def test_hybrid_ranks_relevant_chunk_first() -> None:
@@ -160,8 +162,11 @@ def test_hybrid_recovers_lexical_match_dense_alone_ranks_lower() -> None:
         "alfa beta gamma delta zeta",
         "alfa beta gamma delta eta",
     ]
-    hybrid = HybridRetriever(DenseRetriever(_FakeEmbedder()), BM25Index())
-    hybrid.index(ids, texts)
+    dense = DenseRetriever(_FakeEmbedder())
+    dense.index(ids, texts)
+    sparse = BM25Index()
+    sparse.index(ids, texts)
+    hybrid = HybridRetriever(dense, sparse)
     # The query term only occurs in doc_lex; the lexical leg pins it to rank 1.
     results = hybrid.search("expediente sancionador 12345", k=4)
     assert results[0][0] == "doc_lex"

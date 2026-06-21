@@ -160,7 +160,7 @@ of CI. Quality *scores* (LLM-judge faithfulness, 👍/👎) are a planned follow
 
 | Current choice | Why (now) | Planned swap (when) | Seam |
 |---|---|---|---|
-| In-memory NumPy dense + BM25 | ~25K chunks fit in RAM; zero infra | **Qdrant** on-disk (dense+sparse) | `Searcher` |
+| In-memory NumPy dense + BM25 | ~25K chunks fit in RAM; zero infra | **Qdrant** on-disk dense leg ✓ available (opt-in) | `Searcher` |
 | Off-the-shelf `multilingual-e5-small` | strong baseline, no training | **fine-tuned** Spanish-legal E5 + ONNX int8 | `Embedder` |
 | sentence-transformers cross-encoder | accurate, simple | **ONNX int8** cross-encoder | `Reranker` |
 | **2015–present** corpus (25,419 chunks) ✓ shipped | removed the 2024-slice saturation ceiling | full daily-refresh ingestion | corpus artifact |
@@ -169,6 +169,19 @@ of CI. Quality *scores* (LLM-judge faithfulness, 👍/👎) are a planned follow
 Each swap is a constructor change in `build_engine`, not a rewrite — the point of the protocol
 seams. Corpus expansion was the keystone: it removed the metric saturation that capped
 measurement on the 2024 slice and is the credibility prerequisite for the embedding fine-tune.
+
+### Qdrant dense backend (opt-in)
+
+The dense leg can be served from a Qdrant collection instead of the in-memory NumPy index:
+`QdrantSearcher` (`eval/qdrant_store.py`) implements the same `Searcher` contract, so the hybrid
+retriever, eval runner, and engine accept it unchanged — BM25 stays in memory and RRF fusion is
+untouched. Because both backends index the *same* E5 vectors under cosine distance, this is a
+backend swap, not a quality change; parity is verifiable by re-running the retrieval eval against
+the Qdrant leg (`run_eval --qdrant-url … --qdrant-collection …`). It is off by default — the live
+Space keeps the zero-infra NumPy path — and enabled by setting `QDRANT_URL`/`QDRANT_COLLECTION`
+after populating the collection with `scripts/build_qdrant_index.py` (needs the `qdrant` extra and
+a running Qdrant). The `qdrant-client` dependency stays out of the default/CI path: the client is
+injected behind a small protocol, imported only at the edges.
 
 ## 10. Key decisions log
 - **Article-level chunking** over fixed-size windows — equal ranking quality, *plus* free exact

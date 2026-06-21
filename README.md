@@ -79,9 +79,9 @@ query ─▶ hybrid retrieval ─▶ rerank (cross-encoder) ─▶ grounded gene
 ```
 
 > The index is in-memory (NumPy) and the rerank model runs under sentence-transformers —
-> a deliberate fit for the current ~25K-chunk corpus on free CPU hardware. The planned
-> scale-up swaps in a **Qdrant** store (full-corpus, on-disk) and an **ONNX int8** reranker
-> (see the roadmap).
+> a deliberate fit for the current ~25K-chunk corpus on free CPU hardware. The dense leg
+> already has an opt-in **Qdrant** backend (on-disk, same `Searcher` contract — enable with
+> `QDRANT_URL`; see the roadmap); an **ONNX int8** reranker is still planned.
 
 For the full rationale — design principles, trade-offs, and the decisions log — see
 [`docs/DESIGN.md`](docs/DESIGN.md).
@@ -93,7 +93,7 @@ optimization is a drop-in implementation rather than a rewrite:
 
 | Seam | Protocol | Current implementation | Planned swap |
 |---|---|---|---|
-| Retrieval | `Searcher` (`eval/retriever.py`) | in-memory dense E5 + BM25, RRF fusion | Qdrant store (dense + sparse, on-disk) |
+| Retrieval | `Searcher` (`eval/retriever.py`) | in-memory dense E5 + BM25, RRF fusion | **Qdrant** dense leg — built, opt-in via `QDRANT_URL` |
 | Query encoding | `Embedder` (`eval/retriever.py`) | off-the-shelf `multilingual-e5-small` | fine-tuned E5, ONNX int8 |
 | Reranking | `Reranker` (`eval/rerank.py`) | sentence-transformers cross-encoder | ONNX int8 cross-encoder |
 | Generation | `LLMProvider` (`llm/base.py`) | OpenRouter → Groq → Gemini fallback chain | any OpenAI-compatible provider |
