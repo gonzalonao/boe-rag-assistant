@@ -176,9 +176,13 @@ The dense leg can be served from a Qdrant collection instead of the in-memory Nu
 `QdrantSearcher` (`eval/qdrant_store.py`) implements the same `Searcher` contract, so the hybrid
 retriever, eval runner, and engine accept it unchanged — BM25 stays in memory and RRF fusion is
 untouched. Because both backends index the *same* E5 vectors under cosine distance, this is a
-backend swap, not a quality change; parity is verifiable by re-running the retrieval eval against
-the Qdrant leg (`run_eval --qdrant-url … --qdrant-collection …`). It is off by default — the live
-Space keeps the zero-infra NumPy path — and enabled by setting `QDRANT_URL`/`QDRANT_COLLECTION`
+backend swap, not a quality change. **Parity was verified** ([`reports/qdrant_parity.md`](../reports/qdrant_parity.md)):
+with exact search (`run_eval --qdrant-exact`) Qdrant assigns *identical* cosine scores to the NumPy
+index on all 25,419 vectors; 19/20 gold queries rank identically, and the lone difference (q003) is
+a tie-break among 20+ byte-identical boilerplate chunks (same `0.913143` score), not a quality gap —
+which also surfaced a duplicate-content data-quality follow-up. Qdrant serves from its approximate
+HNSW index by default (fast); `--qdrant-exact` forces brute force for the parity check. It is off by
+default — the live Space keeps the zero-infra NumPy path — and enabled by setting `QDRANT_URL`/`QDRANT_COLLECTION`
 after populating the collection with `scripts/build_qdrant_index.py` (needs the `qdrant` extra and
 a running Qdrant). The `qdrant-client` dependency stays out of the default/CI path: the client is
 injected behind a small protocol, imported only at the edges.
