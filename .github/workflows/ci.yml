@@ -60,12 +60,24 @@ jobs:
         run: |
           python scripts/fetch_corpus.py \
             --repo-id gonzalonao/boe-corpus \
-            --out data/corpus/boe-2024.parquet
+            --out data/corpus/corpus.parquet
 
+      - name: Fetch the published embeddings
+        run: |
+          python scripts/fetch_embeddings.py \
+            --repo-id gonzalonao/boe-corpus \
+            --out data/corpus/embeddings.npz
+
+      # Score the gold set against the precomputed passage matrix (queries are
+      # still encoded live). This keeps the gate fast and constant-time as the
+      # corpus grows, instead of re-encoding every passage on CPU each run. The
+      # matrix is republished in lock-step with the corpus, so a mismatch falls
+      # back to encoding (see run_eval.py / runner.build_dense_searcher).
       - name: Evaluate retrieval on the gold seed set
         run: |
           python scripts/run_eval.py \
-            --corpus data/corpus/boe-2024.parquet \
+            --corpus data/corpus/corpus.parquet \
+            --embeddings data/corpus/embeddings.npz \
             --evalset eval_data/seed_evalset.jsonl \
             --out reports/ci_retrieval
 
