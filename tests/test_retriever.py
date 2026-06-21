@@ -20,7 +20,7 @@ from boe_rag.eval.retriever import (
     load_embeddings,
     save_embeddings,
 )
-from boe_rag.eval.runner import run_retrieval_eval
+from boe_rag.eval.runner import build_dense_searcher, run_retrieval_eval
 
 _DIM = 64
 
@@ -38,10 +38,19 @@ def _vector(text: str) -> FloatMatrix:
 
 
 class _FakeEmbedder:
-    """Deterministic embedder that ignores query/passage distinctions."""
+    """Deterministic embedder that ignores query/passage distinctions.
+
+    Counts passage-encode calls so a test can assert the precomputed path
+    avoided re-encoding the corpus.
+    """
+
+    def __init__(self) -> None:
+        """Start with no passage-encode calls recorded."""
+        self.passage_calls = 0
 
     def embed_passages(self, texts: Sequence[str]) -> FloatMatrix:
         """Embed passages as bag-of-words unit vectors."""
+        self.passage_calls += 1
         return np.vstack([_vector(t) for t in texts])
 
     def embed_queries(self, texts: Sequence[str]) -> FloatMatrix:
@@ -135,6 +144,44 @@ def test_save_embeddings_length_mismatch_raises(tmp_path: Path) -> None:
         save_embeddings(
             tmp_path / "emb.npz", ["a"], np.zeros((2, _DIM), dtype=np.float32)
         )
+
+
+def test_build_dense_searcher_uses_precomputed_without_encoding() -> None:
+    """Matching precomputed ids skip passage encoding and rank like encoding."""
+    ids = ["c1", "c2", "c3"]
+    texts = [
+        "precio del gas licuado por canalizacion",
+        "consulado honorario en bengasi libia",
+        "presupuesto general de navarra importe",
+    ]
+    matrix = _FakeEmbedder().embed_passages(texts)
+    embedder = _FakeEmbedder()
+
+    searcher = build_dense_searcher(ids, texts, embedder, precomputed=(ids, matrix))
+
+    assert embedder.passage_calls == 0  # corpus was not re-encoded
+    assert searcher.search(
+        "precio del gas por canalizacion", k=3
+    ) == _retriever().search("precio del gas por canalizacion", k=3)
+
+
+def test_build_dense_searcher_falls_back_when_ids_mismatch() -> None:
+    """Precomputed ids that do not match the corpus trigger a re-encode."""
+    ids = ["c1", "c2", "c3"]
+    texts = [
+        "precio del gas licuado por canalizacion",
+        "consulado honorario en bengasi libia",
+        "presupuesto general de navarra importe",
+    ]
+    stale_matrix = _FakeEmbedder().embed_passages(texts)
+    embedder = _FakeEmbedder()
+
+    searcher = build_dense_searcher(
+        ids, texts, embedder, precomputed=(["x", "y", "z"], stale_matrix)
+    )
+
+    assert embedder.passage_calls == 1  # mismatch → encoded the corpus
+    assert searcher.search("precio del gas por canalizacion", k=1)[0][0] == "c1"
 
 
 def test_run_retrieval_eval_scores_perfectly_on_aligned_set() -> None:
