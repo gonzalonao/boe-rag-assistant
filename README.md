@@ -30,8 +30,8 @@ boe.es (or an honest refusal when the corpus doesn't cover it).
 
 ### Results at a glance
 
-Retrieval on the 20-question golden set (2024 corpus, 2,225 chunks) — every stage measured
-before it shipped:
+Each stage of the retrieval pipeline was measured before it shipped, on the 20-question golden
+set over the **2024 iteration corpus** (2,225 chunks) used to develop the ablations:
 
 | Stage | Recall@10 | MRR | nDCG@10 |
 |---|---|---|---|
@@ -42,6 +42,12 @@ before it shipped:
 End-to-end answer quality (cite-or-refuse generation, scored by an LLM-as-judge):
 **faithfulness 0.990 · correctness 0.895 · refusal rate 0.050**. Full methodology, per-stage
 tables, and reproduction commands in [Evaluation](#evaluation-phase-2).
+
+> **Production corpus.** The deployed corpus has since been widened to **2015–present**
+> (**25,419 chunks**, ≈1,043 documents). On that larger, harder corpus the dense-only baseline
+> measures **recall@10 0.85 · MRR 0.674** — the honest drop from removing the 2024 slice's
+> saturation ceiling (11× more passages compete for the top 10). Re-running the full ablation
+> (hybrid · rerank · chunking) on the wider corpus is a tracked follow-up.
 
 **With error bars.** Twenty gold questions carry wide uncertainty — recall@10 0.900 has a 95%
 bootstrap CI of **[0.750, 1.000]**, so a 0.05 swing is within noise. The 1,749-example silver
@@ -73,7 +79,7 @@ query ─▶ hybrid retrieval ─▶ rerank (cross-encoder) ─▶ grounded gene
 ```
 
 > The index is in-memory (NumPy) and the rerank model runs under sentence-transformers —
-> a deliberate fit for the current 2,225-chunk corpus on free CPU hardware. The planned
+> a deliberate fit for the current ~25K-chunk corpus on free CPU hardware. The planned
 > scale-up swaps in a **Qdrant** store (full-corpus, on-disk) and an **ONNX int8** reranker
 > (see the roadmap).
 
@@ -388,7 +394,7 @@ hardware — everything the running container needs is baked in at build time:
 - the **corpus** Parquet, fetched from the published HF dataset
   ([`scripts/fetch_corpus.py`](scripts/fetch_corpus.py));
 - **precomputed E5 passage embeddings** ([`scripts/precompute_embeddings.py`](scripts/precompute_embeddings.py)),
-  so the service loads a matrix instead of re-encoding all 2,225 passages on boot;
+  so the service loads a matrix instead of re-encoding the full corpus on boot;
 - the **embedding + cross-encoder weights** ([`scripts/warm_models.py`](scripts/warm_models.py)),
   so there are no model downloads at runtime.
 

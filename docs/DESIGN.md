@@ -99,9 +99,12 @@ The contract every change is held to (`src/boe_rag/eval/`):
   tiers are reported separately. Both are published: `gonzalonao/boe-rag-evalset`.
 - **End-to-end quality.** An LLM-as-judge (`judge.py`) scores each answer for **faithfulness**
   and **correctness** (0–1, `temperature=0`), plus refusal rate.
-- **Measured results.** Dense → +hybrid → +rerank lifts recall@10 0.900 → **1.000** and MRR
-  0.749 → **0.888**; article chunking beats fixed-size by **+0.063 MRR** while uniquely keeping
-  exact citations. E2E baseline: faithfulness **0.990**, correctness **0.895**.
+- **Measured results.** On the 2024 iteration corpus (2,225 chunks), dense → +hybrid → +rerank
+  lifts recall@10 0.900 → **1.000** and MRR 0.749 → **0.888**; article chunking beats fixed-size
+  by **+0.063 MRR** while uniquely keeping exact citations. E2E baseline: faithfulness **0.990**,
+  correctness **0.895**. On the production **2015–present** corpus (25,419 chunks) the dense
+  baseline is **recall@10 0.85 · MRR 0.674** — the saturation ceiling removed; re-running the
+  full ablation there is a tracked follow-up.
 - **Uncertainty, quantified.** `eval/stats.py` reports a 95% bootstrap CI for recall@k and MRR
   on every run (wide on 20 gold questions — recall@10 0.900 [0.750, 1.000]; ~10× tighter on the
   1,749 silver examples) and a **paired sign-flip permutation test** for comparing two systems on
@@ -157,15 +160,15 @@ of CI. Quality *scores* (LLM-judge faithfulness, 👍/👎) are a planned follow
 
 | Current choice | Why (now) | Planned swap (when) | Seam |
 |---|---|---|---|
-| In-memory NumPy dense + BM25 | 2,225 chunks fit in RAM; zero infra | **Qdrant** on-disk (dense+sparse) | `Searcher` |
+| In-memory NumPy dense + BM25 | ~25K chunks fit in RAM; zero infra | **Qdrant** on-disk (dense+sparse) | `Searcher` |
 | Off-the-shelf `multilingual-e5-small` | strong baseline, no training | **fine-tuned** Spanish-legal E5 + ONNX int8 | `Embedder` |
 | sentence-transformers cross-encoder | accurate, simple | **ONNX int8** cross-encoder | `Reranker` |
-| 2024 corpus slice | fast to iterate | **2015–present** Disposiciones Generales | corpus artifact |
+| **2015–present** corpus (25,419 chunks) ✓ shipped | removed the 2024-slice saturation ceiling | full daily-refresh ingestion | corpus artifact |
 | Custom metrics + LLM-judge | transparent, dependency-free | **RAGAS** alongside | `eval/` |
 
 Each swap is a constructor change in `build_engine`, not a rewrite — the point of the protocol
-seams. Corpus expansion is the keystone: it removes the metric saturation that currently caps
-measurement and is the credibility prerequisite for the embedding fine-tune.
+seams. Corpus expansion was the keystone: it removed the metric saturation that capped
+measurement on the 2024 slice and is the credibility prerequisite for the embedding fine-tune.
 
 ## 10. Key decisions log
 - **Article-level chunking** over fixed-size windows — equal ranking quality, *plus* free exact
