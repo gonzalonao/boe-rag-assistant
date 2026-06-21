@@ -33,6 +33,11 @@ qdrant_storage/
 eval_data/generated_evalset.jsonl
 eval_data/*.processed
 
+# Deterministic train/test split of the silver set (reproducible from the seed
+# via scripts/split_evalset.py — no need to commit the derived partitions).
+eval_data/silver_train.jsonl
+eval_data/silver_test.jsonl
+
 # OS / editor noise
 .DS_Store
 Thumbs.db
