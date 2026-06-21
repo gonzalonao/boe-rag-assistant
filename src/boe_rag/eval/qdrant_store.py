@@ -72,6 +72,7 @@ class VectorSearchClient(Protocol):
         query: Sequence[float],
         limit: int,
         with_payload: bool,
+        search_params: object | None = None,
     ) -> QueryResponse:
         """Return the nearest points to ``query`` in ``collection_name``."""
         ...
@@ -85,12 +86,20 @@ class QdrantSearcher:
     then nearest-neighbour search is delegated to Qdrant; each hit's stable chunk
     id is read back from its payload.
 
+    By default Qdrant serves the dense leg from its (approximate) HNSW index — the
+    production-realistic choice that trades a little recall for speed. Pass an
+    explicit ``search_params`` (e.g. ``SearchParams(exact=True)`` via
+    :func:`connect_searcher`) to force exact brute-force search, which reproduces
+    the in-memory NumPy index's rankings for a faithful backend-parity check.
+
     Args:
         client: A connected Qdrant client (anything matching
             :class:`VectorSearchClient`).
         collection: Name of the collection to search.
         embedder: Embedder for query encoding; must match the model whose
             vectors populate the collection.
+        search_params: Optional opaque Qdrant ``SearchParams`` forwarded to each
+            query (e.g. to force exact search); ``None`` uses Qdrant's default.
     """
 
     def __init__(
@@ -98,11 +107,13 @@ class QdrantSearcher:
         client: VectorSearchClient,
         collection: str,
         embedder: Embedder,
+        search_params: object | None = None,
     ) -> None:
-        """Bind the client, target collection, and query embedder."""
+        """Bind the client, target collection, query embedder, and search params."""
         self._client = client
         self._collection = collection
         self._embedder = embedder
+        self._search_params = search_params
 
     def search(self, query: str, k: int = 10) -> list[tuple[str, float]]:
         """Return the top-k chunk ids and scores for ``query``.
@@ -124,6 +135,7 @@ class QdrantSearcher:
             query=query_vec,
             limit=k,
             with_payload=True,
+            search_params=self._search_params,
         )
         results: list[tuple[str, float]] = []
         for point in response.points:
@@ -145,6 +157,7 @@ def connect_searcher(
     url: str | None = None,
     path: str | None = None,
     api_key: str | None = None,
+    exact: bool = False,
 ) -> QdrantSearcher:
     """Connect to Qdrant and return a ready :class:`QdrantSearcher`.
 
@@ -160,6 +173,9 @@ def connect_searcher(
         url: Base URL of a Qdrant server (e.g. ``http://localhost:6333``).
         path: Directory of a local embedded Qdrant instance.
         api_key: Optional API key for a secured server deployment (``url`` only).
+        exact: Force exact (brute-force) search instead of the approximate HNSW
+            index. Use for backend-parity checks against the exact NumPy index;
+            leave ``False`` for production-realistic (faster) approximate search.
 
     Returns:
         A searcher bound to a live client.
@@ -170,14 +186,17 @@ def connect_searcher(
     """
     if (url is None) == (path is None):
         raise ValueError("provide exactly one of url= or path=")
-    from qdrant_client import QdrantClient
+    from qdrant_client import QdrantClient, models
 
     client = (
         QdrantClient(path=path)
         if path is not None
         else QdrantClient(url=url, api_key=api_key)
     )
+    search_params = models.SearchParams(exact=True) if exact else None
     # QdrantClient.query_points has a far broader signature than we use; this
-    # searcher only ever calls it with (collection, query=, limit=, with_payload=),
-    # which the real client accepts, so narrow it to the protocol we depend on.
-    return QdrantSearcher(cast(VectorSearchClient, client), collection, embedder)
+    # searcher only ever calls it with (collection, query=, limit=, with_payload=,
+    # search_params=), which the real client accepts, so narrow it to the protocol.
+    return QdrantSearcher(
+        cast(VectorSearchClient, client), collection, embedder, search_params
+    )
