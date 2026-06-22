@@ -97,7 +97,13 @@ spoofing (**0% → 100%**):
 **2. Canary containment** (`src/boe_rag/service/safety.py`) — closes exfiltration
 (**75% → 100%**): if the secret `SYSTEM_PROMPT_CANARY` appears in the answer, the
 system-prompt defenses were overridden and the whole answer is untrustworthy, so it
-is replaced by the exact refusal string (not merely redacted).
+is replaced by the exact refusal string (not merely redacted). Detection is
+**obfuscation-robust** (`normalize_for_canary_match` in `eval/security.py`, shared by
+the guardrail and the eval): both sides are folded with Unicode `NFKC`, casefolded,
+and reduced to alphanumerics before matching, so case, full-width forms, and
+separator substitutions — including the non-breaking-hyphen variant that leaked the
+canary on the live v0.3.0 build (see below) — cannot smuggle the marker past the
+tripwire.
 
 Re-running `run_security_eval.py` against the same harness proves each close. This
 is the canonical security workflow — *measure, find a real gap, close it, prove the
@@ -114,17 +120,18 @@ the defenses.
   remains an open research problem, so this is tracked honestly rather than papered
   over.
 
-- **Canary homoglyph evasion (found 2026-06-21, on the live v0.3.0 build).** The
-  canary tripwire (`screen_canary` in `service/safety.py`) does an *exact* substring
-  match for `BOE-GUARD-7F3Q-INTERNAL`. An exfiltration prompt got the model to emit
-  the system prompt with the ASCII hyphens replaced by **non-breaking hyphens**
-  (`U+2011`), so the bytes differed and the tripwire did not fire — the prompt leaked.
-  Any homoglyph or separator substitution (dashes, spaces, zero-width characters,
-  Unicode look-alike letters) defeats the exact match the same way. Planned fix:
-  normalize both the answer and the canary before comparison — Unicode `NFKC`,
-  casefold, and collapse separator/whitespace runs (with a residual, honestly-noted
-  gap for full Latin look-alike *letter* substitution, which needs a confusables
-  fold). Tracked for a `v0.3.1` hardening pass; not yet shipped.
+- **Canary homoglyph evasion — found 2026-06-21 (live v0.3.0), fixed for `v0.3.1`.**
+  The canary tripwire originally did an *exact* substring match for the marker. An
+  exfiltration prompt got the model to emit the system prompt with the ASCII hyphens
+  replaced by **non-breaking hyphens** (`U+2011`), so the bytes differed and the
+  tripwire did not fire — the prompt leaked. **Closed** by normalizing both sides
+  (`NFKC` + casefold + alphanumeric-only) before matching, which collapses every
+  separator, hyphen, space, zero-width, and full-width obfuscation onto one canonical
+  form; covered by a deterministic regression test for the exact non-breaking-hyphen
+  bypass and a new live probe (`exf-07`). **Residual (still open):** pure cross-script
+  *letter* homoglyphs (e.g. a Cyrillic look-alike substituted for a Latin letter) are
+  not folded — that needs a Unicode confusables table, deferred as a known limitation
+  since the realistic, observed vector was separator substitution.
 
 ## Scope and non-goals
 
