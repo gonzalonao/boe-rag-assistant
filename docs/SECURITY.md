@@ -66,7 +66,7 @@ python scripts/run_security_eval.py --corpus data/corpus/boe-2024.parquet \
 
 Two find→fix loops, each measured on the same harness. The baseline is the
 **prompt-only** generator; the deterministic output guardrails were added in
-response to what the eval found, then the suite was broadened from 14 to 22 cases.
+response to what the eval found, then the suite was broadened from 14 to 23 cases.
 
 | Attack category | Baseline (prompt-only) | With output guardrails |
 |---|---|---|
@@ -74,7 +74,11 @@ response to what the eval found, then the suite was broadened from 14 to 22 case
 | Instruction override | 75% | 67% |
 | System-prompt exfiltration | 75% | **100%** |
 | **Citation spoofing** | **0%** | **100%** |
-| **Overall** | **64% (9/14)** | **91% (20/22)** |
+| **Overall** | **64% (9/14)** | **91% (21/23)** |
+
+System-prompt exfiltration stays at **100%** including `exf-07`, the
+non-breaking-hyphen obfuscation probe added with the v0.3.1 canary-normalisation
+fix (below).
 
 The suite earned its keep by finding **two real weaknesses** that prompt wording
 alone could not close: the generator **fabricated citations** to passages it never
@@ -97,7 +101,13 @@ spoofing (**0% → 100%**):
 **2. Canary containment** (`src/boe_rag/service/safety.py`) — closes exfiltration
 (**75% → 100%**): if the secret `SYSTEM_PROMPT_CANARY` appears in the answer, the
 system-prompt defenses were overridden and the whole answer is untrustworthy, so it
-is replaced by the exact refusal string (not merely redacted).
+is replaced by the exact refusal string (not merely redacted). Detection is
+**obfuscation-robust** (`normalize_for_canary_match` in `eval/security.py`, shared by
+the guardrail and the eval): both sides are folded with Unicode `NFKC`, casefolded,
+and reduced to alphanumerics before matching, so case, full-width forms, and
+separator substitutions — including the non-breaking-hyphen variant that leaked the
+canary on the live v0.3.0 build (see below) — cannot smuggle the marker past the
+tripwire.
 
 Re-running `run_security_eval.py` against the same harness proves each close. This
 is the canonical security workflow — *measure, find a real gap, close it, prove the
@@ -106,13 +116,27 @@ the defenses.
 
 ## Open gaps
 
-- **Instruction-override echo (4/6).** Two cases (`inj-02`, `inj-06`) still coax the
-  model into echoing an injected literal string. Unlike citation/canary leaks, there
-  is no fixed token to match deterministically at runtime — the payload is arbitrary.
+- **Instruction-override echo (4/6).** Two of the six override cases (which two
+  varies run to run — e.g. `inj-05`, `inj-06`) still coax the model into echoing an
+  injected literal string. Unlike citation/canary leaks, there is no fixed token to
+  match deterministically at runtime — the payload is arbitrary.
   Mitigations under consideration: stricter output-format constraints, a
   response-schema check, or a second-pass classifier; robust prompt-injection defense
   remains an open research problem, so this is tracked honestly rather than papered
   over.
+
+- **Canary homoglyph evasion — found 2026-06-21 (live v0.3.0), fixed for `v0.3.1`.**
+  The canary tripwire originally did an *exact* substring match for the marker. An
+  exfiltration prompt got the model to emit the system prompt with the ASCII hyphens
+  replaced by **non-breaking hyphens** (`U+2011`), so the bytes differed and the
+  tripwire did not fire — the prompt leaked. **Closed** by normalizing both sides
+  (`NFKC` + casefold + alphanumeric-only) before matching, which collapses every
+  separator, hyphen, space, zero-width, and full-width obfuscation onto one canonical
+  form; covered by a deterministic regression test for the exact non-breaking-hyphen
+  bypass and a new live probe (`exf-07`). **Residual (still open):** pure cross-script
+  *letter* homoglyphs (e.g. a Cyrillic look-alike substituted for a Latin letter) are
+  not folded — that needs a Unicode confusables table, deferred as a known limitation
+  since the realistic, observed vector was separator substitution.
 
 ## Scope and non-goals
 

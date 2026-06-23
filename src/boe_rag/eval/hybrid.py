@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from boe_rag.eval.retriever import DenseRetriever
+from boe_rag.eval.retriever import Searcher
 from boe_rag.eval.sparse import BM25Index
 
 #: Standard RRF damping constant (Cormack et al., 2009).
@@ -46,8 +46,13 @@ def reciprocal_rank_fusion(
 class HybridRetriever:
     """Dense + BM25 retrieval fused with Reciprocal Rank Fusion.
 
+    Both legs are indexed by their owners before being handed in; the dense leg
+    is any :class:`~boe_rag.eval.retriever.Searcher`, so the in-memory NumPy
+    index and a Qdrant-backed one are interchangeable here without touching
+    fusion.
+
     Args:
-        dense: The dense (embedding) retriever.
+        dense: The dense (embedding) retriever — any indexed ``Searcher``.
         sparse: The BM25 lexical retriever.
         k_rrf: RRF damping constant.
         candidates: Candidates pulled from each leg before fusion; capped to at
@@ -56,7 +61,7 @@ class HybridRetriever:
 
     def __init__(
         self,
-        dense: DenseRetriever,
+        dense: Searcher,
         sparse: BM25Index,
         k_rrf: int = DEFAULT_K_RRF,
         candidates: int = DEFAULT_CANDIDATES,
@@ -66,16 +71,6 @@ class HybridRetriever:
         self._sparse = sparse
         self._k_rrf = k_rrf
         self._candidates = candidates
-
-    def index(self, chunk_ids: Sequence[str], texts: Sequence[str]) -> None:
-        """Index the corpus in both the dense and sparse legs.
-
-        Args:
-            chunk_ids: Stable ids, aligned with ``texts``.
-            texts: Chunk texts to index.
-        """
-        self._dense.index(chunk_ids, texts)
-        self._sparse.index(chunk_ids, texts)
 
     def search(self, query: str, k: int = 10) -> list[tuple[str, float]]:
         """Retrieve from both legs and return the top-k fused results.

@@ -46,6 +46,13 @@ class Settings(BaseSettings):
         corpus_path: Corpus Parquet path (``BOE_CORPUS_PATH``).
         embeddings_path: Precomputed-embeddings ``.npz`` (``BOE_EMBEDDINGS_PATH``).
         reports_dir: Directory of eval report JSON (``BOE_REPORTS_DIR``).
+        qdrant_url: Qdrant server URL (``QDRANT_URL``); when set (or
+            ``qdrant_path``), the dense leg is served from Qdrant instead of the
+            in-memory NumPy index.
+        qdrant_path: Local embedded-Qdrant directory (``QDRANT_PATH``); a
+            server-free alternative to ``qdrant_url``.
+        qdrant_collection: Qdrant collection name (``QDRANT_COLLECTION``).
+        qdrant_api_key: Optional Qdrant API key (``QDRANT_API_KEY``).
         openrouter_api_key: OpenRouter credential (``OPENROUTER_API_KEY``).
         openrouter_model: OpenRouter model override (``OPENROUTER_MODEL``).
         groq_api_key: Groq credential (``GROQ_API_KEY``).
@@ -69,6 +76,13 @@ class Settings(BaseSettings):
         default=None, validation_alias="BOE_EMBEDDINGS_PATH"
     )
     reports_dir: Path | None = Field(default=None, validation_alias="BOE_REPORTS_DIR")
+
+    qdrant_url: str | None = Field(default=None, validation_alias="QDRANT_URL")
+    qdrant_path: str | None = Field(default=None, validation_alias="QDRANT_PATH")
+    qdrant_collection: str | None = Field(
+        default=None, validation_alias="QDRANT_COLLECTION"
+    )
+    qdrant_api_key: str | None = Field(default=None, validation_alias="QDRANT_API_KEY")
 
     openrouter_api_key: str | None = Field(
         default=None, validation_alias="OPENROUTER_API_KEY"
@@ -107,6 +121,10 @@ class Settings(BaseSettings):
             "BOE_CORPUS_PATH": self.corpus_path,
             "BOE_EMBEDDINGS_PATH": self.embeddings_path,
             "BOE_REPORTS_DIR": self.reports_dir,
+            "QDRANT_URL": self.qdrant_url,
+            "QDRANT_PATH": self.qdrant_path,
+            "QDRANT_COLLECTION": self.qdrant_collection,
+            "QDRANT_API_KEY": self.qdrant_api_key,
             "OPENROUTER_API_KEY": self.openrouter_api_key,
             "OPENROUTER_MODEL": self.openrouter_model,
             "GROQ_API_KEY": self.groq_api_key,

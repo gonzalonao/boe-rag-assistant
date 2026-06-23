@@ -1,9 +1,11 @@
 # Scaling runbook — corpus expansion → Qdrant → fine-tuned embeddings
 
-The keystone arc of the roadmap. **Arc 4 (corpus expansion)** is actionable now and
-documented step-by-step below. **Arc 5 (Qdrant)** and **Arc 6 (embedding fine-tune)**
-are staged: their plans are concrete, but they are best built *after* the larger corpus
-exists, since both are justified and measured against it.
+The keystone arc of the roadmap. **Arc 4 (corpus expansion)** is **done** (corpus is
+2015–present, 25,419 chunks, live in v0.3.0). **Arc 5 (Qdrant)** is **done** and parity-proven
+(see [`reports/qdrant_parity.md`](../reports/qdrant_parity.md)). **Arc 6 (embedding fine-tune)**
+is **done — measured, didn't ship**: the tune didn't beat off-the-shelf E5 on a powered test
+set (see [`reports/finetune_result.md`](../reports/finetune_result.md)). The runbook below is
+retained as the reproducible record of each.
 
 All commands are Windows PowerShell, run from the repo root with the virtualenv's
 interpreter (`.\.venv\Scripts\python.exe`). The App-Control note applies: invoke tools as
@@ -109,7 +111,7 @@ serving the wider corpus, and the new recall/MRR recorded in `reports/`.
 
 ---
 
-## Arc 5 — Qdrant swap (staged — build after Arc 4)
+## Arc 5 — Qdrant swap (DONE — parity-proven)
 
 **Why now-ish:** once the corpus is 10–50× larger, the in-memory NumPy index stops being
 the obvious choice; an on-disk vector DB is the honest production answer and puts a real
@@ -132,27 +134,88 @@ run the index-build script once, set the two env vars in `.env`. I'll hand you e
 
 ---
 
-## Arc 6 — Embedding fine-tune on the RTX 5070 (staged — build after Arc 4)
+## Arc 6 — Embedding fine-tune on the RTX 5070 (DONE — measured, didn't ship)
 
-**Why:** the single most differentiating ML artifact — a domain-tuned Spanish-legal
-embedding model with a measured before/after beats any off-the-shelf demo. Needs the wider
-corpus first so the training signal and the win are credible.
+**Outcome (2026-06-21):** ran the full pipeline and the fine-tune **did not beat**
+off-the-shelf `multilingual-e5-small`. On a properly-powered, leakage-free test set
+(~350 held-out silver queries, document-disjoint from training) recall@10 was flat
+(Δ=−0.003, CI [−0.031, +0.023]) and MRR only slightly positive and not significant
+(Δ=+0.013, p=0.43). The base model is already strong on legal Spanish, so we keep it —
+`E5Embedder`'s default is unchanged. The honest write-up with the full method and tables
+is in [`reports/finetune_result.md`](../reports/finetune_result.md). The tooling below
+remains the reproducible path; nothing was published. The rest of this section is kept as
+the runbook that produced that result.
 
-**Plan (what I'll build):**
-1. Mine training pairs from the corpus + the silver eval set: (question, positive chunk)
-   with hard negatives drawn from BM25 near-misses.
-2. A fine-tune script (`scripts/finetune_embeddings.py`) using sentence-transformers
-   `MultipleNegativesRankingLoss` on top of `multilingual-e5-small`, configured for a 12 GB
-   card (batch size, fp16, gradient checkpointing).
-3. Evaluate the tuned model on the **gold** set with the existing harness + bootstrap CIs
-   (`eval/stats.py`), producing an honest before/after table; only ship if it wins.
-4. Publish to `gonzalonao/boe-embeddings-e5` with a model card carrying that table, then
-   point `E5Embedder` at it (constructor/`--model` change) and re-precompute + redeploy.
-5. Optional follow-on: ONNX int8 export for CPU-latency (Arc 7).
+**Why it was worth doing:** a domain-tuned embedding model with a measured before/after is
+the single most differentiating ML artifact — *if it wins*. The wider corpus (Arc 4) gives
+the training signal; a significance-tested go/no-go gate keeps the claim honest either way.
+Here the gate correctly said *don't ship*, which is the point of building it.
 
-**Your side when it's ready:** a GPU training run on your machine (I'll give exact
-commands, expected VRAM/runtime, and the go/no-go metric gate); everything else — pair
-mining, eval, publishing wiring — is mine.
+**What's built (on `develop`):**
+- `src/boe_rag/eval/mine_pairs.py` — mines `(question, positive-chunk, hard-negatives)` pairs
+  from the **silver** eval set (`eval_data/generated_evalset.jsonl`), with hard negatives
+  drawn from BM25 near-misses (the confusable passages the dense model most needs to separate).
+  Pure + unit-tested; also lays the pairs out as a rectangular, E5-prefixed training dataset.
+- `scripts/finetune_embeddings.py` — `SentenceTransformerTrainer` +
+  `MultipleNegativesRankingLoss` on `multilingual-e5-small`, 12 GB config (fp16,
+  `no_duplicates` batch sampler). Needs the `ml` + `train` extras.
+- `src/boe_rag/eval/compare.py` + `scripts/compare_models.py` — the go/no-go gate: scores
+  base vs tuned on the **gold** set (`eval_data/seed_evalset.jsonl`, held out from training)
+  and judges the difference with a paired bootstrap CI + sign-flip permutation test
+  (`eval/stats.py`). Ships only on a significant recall@10 win (exit 0 = ship, 2 = no-ship).
+
+> **Train/eval split:** to judge the tune with real statistical power, split the ~1.7k silver
+> examples into train/test **by source document** (`scripts/split_evalset.py`,
+> `eval/split.py`) so no test positive comes from a document the model trained on. Evaluate on
+> the ~350-query held-out silver test. The 20-query gold set is too small and structurally
+> pinned (the `::0004` duplicate-boilerplate tie caps recall) to detect a modest gain — it is
+> kept only as a secondary reference.
+
+**The GPU run (detailed steps).** PowerShell from the repo root, venv interpreter.
+
+1. Pull and install the training extras (on top of your existing cu128 torch):
+   ```powershell
+   git checkout develop; git pull origin develop
+   .\.venv\Scripts\python.exe -m pip install -e ".[ml,train]"
+   ```
+2. Carve the leakage-free train/test split (deterministic; outputs are git-ignored):
+   ```powershell
+   .\.venv\Scripts\python.exe scripts/split_evalset.py `
+       --in eval_data/generated_evalset.jsonl `
+       --train-out eval_data/silver_train.jsonl `
+       --test-out eval_data/silver_test.jsonl `
+       --test-fraction 0.2 --seed 42
+   ```
+   It prints the split sizes and asserts **0 documents leak across splits**.
+3. Fine-tune on the train split (a big batch matters for MNRL — cap the sequence length and
+   enable gradient checkpointing so batch 64 fits in 12 GB):
+   ```powershell
+   .\.venv\Scripts\python.exe scripts/finetune_embeddings.py `
+       --corpus data/corpus/boe-2015-present.parquet `
+       --train-evalset eval_data/silver_train.jsonl `
+       --out models/boe-e5-small `
+       --epochs 3 --batch-size 64 --num-negatives 4 `
+       --max-seq-length 256 --grad-checkpointing `
+       --pairs-out data/train/boe_pairs.jsonl
+   ```
+   If it OOMs, step down: `--batch-size 48` → `--max-seq-length 192` → `--batch-size 32`.
+   (The `expandable_segments not supported` warning is expected on Windows — ignore it.)
+4. **Go/no-go** — score tuned vs base on the held-out silver test (encodes the 25K corpus twice):
+   ```powershell
+   .\.venv\Scripts\python.exe scripts/compare_models.py `
+       --corpus data/corpus/boe-2015-present.parquet `
+       --evalset eval_data/silver_test.jsonl `
+       --candidate-model models/boe-e5-small `
+       --out reports/finetune_compare_silver
+   ```
+   Read the printed verdict + the report. **Send me the table.**
+5. **Only if it ships** (significant recall@10 gain): wire publishing —
+   `gonzalonao/boe-embeddings-e5` with the before/after model card, repoint `E5Embedder`'s
+   default model, re-precompute the `.npz`, republish, and tag a release to redeploy. If it
+   does **not** win (as in the 2026-06-21 run above), keep the off-the-shelf model and record
+   the honest null result — see [`reports/finetune_result.md`](../reports/finetune_result.md).
+
+**Optional follow-on:** ONNX int8 export for CPU latency (Arc 7).
 
 ---
 

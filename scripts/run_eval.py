@@ -22,8 +22,13 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from boe_rag.eval.dataset import load_evalset
 from boe_rag.eval.embedding import DEFAULT_MODEL, E5Embedder
 from boe_rag.eval.metrics import RetrievalMetrics, recall_at_k, reciprocal_rank
+from boe_rag.eval.qdrant_store import connect_searcher
 from boe_rag.eval.retriever import FloatMatrix, load_embeddings
-from boe_rag.eval.runner import ExampleResult, run_retrieval_eval
+from boe_rag.eval.runner import (
+    ExampleResult,
+    evaluate_searcher,
+    run_retrieval_eval,
+)
 from boe_rag.eval.stats import BootstrapCI, bootstrap_mean_ci
 
 logger = logging.getLogger(__name__)
@@ -125,6 +130,30 @@ def _build_parser() -> argparse.ArgumentParser:
         "the corpus, retrieval is scored without re-encoding (queries are still "
         "encoded live); a mismatch falls back to encoding.",
     )
+    parser.add_argument(
+        "--qdrant-url",
+        default=None,
+        help="Score the dense leg from a Qdrant collection at this URL instead "
+        "of the in-memory NumPy index (proves backend parity). Requires "
+        "--qdrant-collection and the `qdrant` extra.",
+    )
+    parser.add_argument(
+        "--qdrant-path",
+        default=None,
+        help="Score the dense leg from a local embedded Qdrant at this directory "
+        "(no server/Docker). Alternative to --qdrant-url.",
+    )
+    parser.add_argument(
+        "--qdrant-collection",
+        default=None,
+        help="Qdrant collection to search when --qdrant-url/--qdrant-path is given.",
+    )
+    parser.add_argument(
+        "--qdrant-exact",
+        action="store_true",
+        help="Force Qdrant exact (brute-force) search for a faithful parity "
+        "check against the exact NumPy index; default uses approximate HNSW.",
+    )
     parser.add_argument("--k", type=int, default=10, help="Cut-off for @k metrics.")
     parser.add_argument(
         "--retrieve-n", type=int, default=20, help="Candidates retrieved per query."
@@ -158,22 +187,40 @@ def main(argv: list[str] | None = None) -> int:
 
     chunk_ids, texts = _load_corpus(args.corpus)
     examples = load_evalset(args.evalset)
-    precomputed: tuple[list[str], FloatMatrix] | None = None
-    if args.embeddings is not None:
-        logger.info("Loading precomputed embeddings from %s ...", args.embeddings)
-        precomputed = load_embeddings(args.embeddings)
-    else:
-        logger.info("Embedding %d chunks with %s ...", len(chunk_ids), args.model)
     embedder = E5Embedder(args.model)
-    metrics, results = run_retrieval_eval(
-        chunk_ids,
-        texts,
-        examples,
-        embedder,
-        k=args.k,
-        retrieve_n=args.retrieve_n,
-        precomputed=precomputed,
-    )
+    if (args.qdrant_url or args.qdrant_path) and args.qdrant_collection:
+        location = args.qdrant_url or f"path:{args.qdrant_path}"
+        logger.info(
+            "Scoring the dense leg from Qdrant '%s' at %s ...",
+            args.qdrant_collection,
+            location,
+        )
+        searcher = connect_searcher(
+            args.qdrant_collection,
+            embedder,
+            url=args.qdrant_url,
+            path=args.qdrant_path,
+            exact=args.qdrant_exact,
+        )
+        metrics, results = evaluate_searcher(
+            searcher, examples, k=args.k, retrieve_n=args.retrieve_n
+        )
+    else:
+        precomputed: tuple[list[str], FloatMatrix] | None = None
+        if args.embeddings is not None:
+            logger.info("Loading precomputed embeddings from %s ...", args.embeddings)
+            precomputed = load_embeddings(args.embeddings)
+        else:
+            logger.info("Embedding %d chunks with %s ...", len(chunk_ids), args.model)
+        metrics, results = run_retrieval_eval(
+            chunk_ids,
+            texts,
+            examples,
+            embedder,
+            k=args.k,
+            retrieve_n=args.retrieve_n,
+            precomputed=precomputed,
+        )
     recall_ci, mrr_ci = _confidence_intervals(
         results, args.k, n_resamples=args.bootstrap_resamples, seed=args.seed
     )

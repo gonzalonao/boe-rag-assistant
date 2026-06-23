@@ -35,6 +35,26 @@ def test_leaked_canary_is_refused() -> None:
     assert SYSTEM_PROMPT_CANARY not in result.answer
 
 
+def test_leaked_canary_with_nonbreaking_hyphens_is_refused() -> None:
+    """The live-demo bypass (canary with U+2011 hyphens) is now caught."""
+    obfuscated = SYSTEM_PROMPT_CANARY.replace("-", chr(0x2011))
+    assert obfuscated != SYSTEM_PROMPT_CANARY  # genuinely different bytes
+    result = screen_canary(
+        f"Mi token interno es {obfuscated}.", SYSTEM_PROMPT_CANARY, refusal=REFUSAL
+    )
+    assert result.leaked
+    assert result.refused
+    assert result.answer == REFUSAL
+
+
+def test_leaked_canary_with_case_and_spacing_is_refused() -> None:
+    """Case changes and inserted spaces cannot smuggle the canary past the guard."""
+    spaced = "b o e - g u a r d - 7 f 3 q - i n t e r n a l"
+    result = screen_canary(f"token: {spaced}", SYSTEM_PROMPT_CANARY, refusal=REFUSAL)
+    assert result.refused
+    assert result.answer == REFUSAL
+
+
 def test_empty_canary_never_matches() -> None:
     """An empty canary never triggers a refusal (guards against misconfig)."""
     result = screen_canary("cualquier respuesta", "", refusal=REFUSAL)

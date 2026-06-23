@@ -11,11 +11,20 @@ answer is untrustworthy and is replaced by the refusal string.
 This is the exfiltration counterpart to :mod:`boe_rag.service.citation` (which
 guards citation integrity); both are pure functions wired into ``RagEngine.answer``
 and unit-tested without an LLM.
+
+Detection is shared with the security eval: both call
+:func:`boe_rag.eval.security.leaks_canary`, which matches after an
+obfuscation-folding normalisation. That single source of truth is what keeps the
+guardrail and the adversarial eval honest about the same threat — the live demo
+leaked the canary when the model substituted non-breaking hyphens, which an exact
+substring match missed.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from boe_rag.eval.security import leaks_canary
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,9 +48,11 @@ def screen_canary(answer: str, canary: str, *, refusal: str) -> CanaryCheck:
 
     A leaked canary means the model echoed part of its hidden system prompt, so the
     answer cannot be trusted: it is replaced wholesale by ``refusal`` rather than
-    merely redacted. Detection is an exact, case-sensitive substring match — the
-    canary is a fixed high-entropy marker, so false positives on genuine legal text
-    are not a practical concern.
+    merely redacted. Detection (:func:`boe_rag.eval.security.leaks_canary`) folds
+    away case, full-width forms, and separator/hyphen substitutions before
+    matching, so an obfuscated canary cannot slip through; the canary is a fixed
+    high-entropy marker, so false positives on genuine legal text are not a
+    practical concern.
 
     Args:
         answer: The generated answer text.
@@ -51,6 +62,6 @@ def screen_canary(answer: str, canary: str, *, refusal: str) -> CanaryCheck:
     Returns:
         The screened answer, whether it was refused, and whether the canary leaked.
     """
-    if canary and canary in answer:
+    if leaks_canary(answer, canary):
         return CanaryCheck(answer=refusal, refused=True, leaked=True)
     return CanaryCheck(answer=answer, refused=False, leaked=False)

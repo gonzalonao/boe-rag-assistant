@@ -39,6 +39,19 @@ ml = [
     "sentencepiece==0.2.1",
     "protobuf==7.35.1",
 ]
+# Fine-tuning the embedding model (Arc 6). Adds the sentence-transformers Trainer
+# deps on top of the `ml` extra; install with `.[ml,train]`. GPU-only workflow —
+# never imported by the service or CI. Floors (not exact pins) so they resolve
+# against whatever CUDA-matched torch is already installed locally.
+train = [
+    "datasets>=2.19,<4",
+    "accelerate>=0.30",
+]
+# On-disk vector backend for the dense leg (Arc 5). Optional: the default
+# serving path uses the in-memory NumPy index and never imports this.
+qdrant = [
+    "qdrant-client==1.16.1",
+]
 # Serving the FastAPI + Gradio app (e.g. on a Hugging Face Space).
 api = [
     "fastapi==0.137.0",
@@ -99,9 +112,15 @@ files = ["src/boe_rag", "tests"]
 warn_unreachable = true
 pretty = true
 
-# Optional `ml`/`ui`/`obs` extras: untyped and not installed in the default/CI env.
+# Optional `ml`/`ui`/`obs`/`qdrant` extras: untyped or not installed in the
+# default/CI env, so their imports are resolved leniently for the type-checker.
 [[tool.mypy.overrides]]
-module = ["sentence_transformers.*", "gradio.*", "langfuse.*"]
+module = [
+    "sentence_transformers.*",
+    "gradio.*",
+    "langfuse.*",
+    "qdrant_client.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
