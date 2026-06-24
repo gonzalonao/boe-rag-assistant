@@ -103,8 +103,8 @@ The contract every change is held to (`src/boe_rag/eval/`):
   lifts recall@10 0.900 → **1.000** and MRR 0.749 → **0.888**; article chunking beats fixed-size
   by **+0.063 MRR** while uniquely keeping exact citations. E2E baseline: faithfulness **0.990**,
   correctness **0.895**. On the production **2015–present** corpus (25,419 chunks) the dense
-  baseline is **recall@10 0.85 · MRR 0.674** — the saturation ceiling removed; re-running the
-  full ablation there is a tracked follow-up.
+  baseline is **recall@10 0.90 · MRR 0.691** (equivalence-aware scoring, below) — the saturation
+  ceiling removed; re-running the full ablation there is a tracked follow-up.
 - **Uncertainty, quantified.** `eval/stats.py` reports a 95% bootstrap CI for recall@k and MRR
   on every run (wide on 20 gold questions — recall@10 0.900 [0.750, 1.000]; ~10× tighter on the
   1,749 silver examples) and a **paired sign-flip permutation test** for comparing two systems on
@@ -180,12 +180,32 @@ backend swap, not a quality change. **Parity was verified** ([`reports/qdrant_pa
 with exact search (`run_eval --qdrant-exact`) Qdrant assigns *identical* cosine scores to the NumPy
 index on all 25,419 vectors; 19/20 gold queries rank identically, and the lone difference (q003) is
 a tie-break among 20+ byte-identical boilerplate chunks (same `0.913143` score), not a quality gap —
-which also surfaced a duplicate-content data-quality follow-up. Qdrant serves from its approximate
+which surfaced a duplicate-content finding, now addressed by equivalence-aware scoring (below).
+Qdrant serves from its approximate
 HNSW index by default (fast); `--qdrant-exact` forces brute force for the parity check. It is off by
 default — the live Space keeps the zero-infra NumPy path — and enabled by setting `QDRANT_URL`/`QDRANT_COLLECTION`
 after populating the collection with `scripts/build_qdrant_index.py` (needs the `qdrant` extra and
 a running Qdrant). The `qdrant-client` dependency stays out of the default/CI path: the client is
 injected behind a small protocol, imported only at the edges.
+
+### Fair scoring under byte-identical passages
+
+The corpus repeats some passages verbatim: a standard clause (e.g. the tax-exclusion paragraph of a
+periodic LPG price resolution) appears byte-identically across many separate documents. Measured
+share: **2.9% of chunks are exact duplicates, but 83% of those are legitimate cross-document repeats**
+(the same clause genuinely belongs to each resolution) — so the corpus is *not* cleaned; the repeats
+are real content with their own citations. The artifact is in *scoring*: an embedder gives every copy
+the same vector, so which one wins the rank is an arbitrary tie-break. When a gold label names exactly
+one copy, that tie can read as a miss even though an interchangeable identical passage was retrieved —
+this is what pinned the fine-tune's recall at Δ0 (q003).
+
+`eval/equivalence.py` fixes this in the scoring layer, not the data: byte-identical chunks form an
+equivalence class with a canonical representative; the ranking and the relevant set are both mapped to
+canonical ids (and the ranking de-duplicated), so the metrics score *distinct content* and a hit on
+any class member counts once, with the recall denominator counting information needs, not copies. It
+is the default in `run_eval.py` (toggle off with `--no-text-equivalence`) and can only raise a metric
+relative to raw-id scoring, so the regression gate stays conservative. A pure, corpus-derived
+transform — no model, no I/O — unit-tested in `tests/test_equivalence.py`.
 
 ## 10. Key decisions log
 - **Article-level chunking** over fixed-size windows — equal ranking quality, *plus* free exact
@@ -195,3 +215,6 @@ injected behind a small protocol, imported only at the edges.
 - **Protocols + dependency injection** — the single decision that makes the system both testable
   in CI and cheap to evolve.
 - **Eval set committed/published, gold as CI fixture** — quality is version-controlled like code.
+- **Equivalence-aware scoring over corpus dedup** — measured the duplicate finding (2.9%, mostly
+  legitimate cross-document repeats), then fixed the *scoring* tie-break instead of mutating a
+  published corpus. Proportionality over reflexive cleaning.

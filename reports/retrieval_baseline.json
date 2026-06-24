@@ -1,21 +1,23 @@
 {
   "k": 10,
   "num_queries": 20,
-  "recall_at_k": 0.85,
-  "precision_at_k": 0.085,
-  "hit_rate_at_k": 0.85,
-  "mrr": 0.6738461538461539,
-  "ndcg_at_k": 0.7148712314377457,
+  "recall_at_k": 0.9,
+  "precision_at_k": 0.09,
+  "hit_rate_at_k": 0.9,
+  "mrr": 0.6905128205128206,
+  "ndcg_at_k": 0.7398712314377457,
   "recall_at_k_ci": {
-    "point": 0.85,
-    "low": 0.7,
+    "point": 0.9,
+    "low": 0.75,
     "high": 1.0,
     "confidence": 0.95
   },
   "mrr_ci": {
-    "point": 0.6738461538461539,
-    "low": 0.495,
-    "high": 0.835,
+    "point": 0.6905128205128206,
+    "low": 0.5238333333333334,
+    "high": 0.8433333333333334,
     "confidence": 0.95
-  }
+  },
+  "text_equivalence": true,
+  "text_equivalence_folded": 739
 }

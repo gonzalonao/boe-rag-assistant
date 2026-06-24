@@ -45,9 +45,11 @@ tables, and reproduction commands in [Evaluation](#evaluation-phase-2).
 
 > **Production corpus.** The deployed corpus has since been widened to **2015–present**
 > (**25,419 chunks**, ≈1,043 documents). On that larger, harder corpus the dense-only baseline
-> measures **recall@10 0.85 · MRR 0.674** — the honest drop from removing the 2024 slice's
-> saturation ceiling (11× more passages compete for the top 10). Re-running the full ablation
-> (hybrid · rerank · chunking) on the wider corpus is a tracked follow-up.
+> measures **recall@10 0.90 · MRR 0.691** — scored crediting byte-identical duplicate clauses as
+> interchangeable hits (a measured 2.9% of the corpus repeats verbatim, mostly legitimate
+> cross-document legal text; see [Design](docs/DESIGN.md)). This is the honest level after removing
+> the 2024 slice's saturation ceiling (11× more passages compete for the top 10). Re-running the
+> full ablation (hybrid · rerank · chunking) on the wider corpus is a tracked follow-up.
 
 **With error bars.** Twenty gold questions carry wide uncertainty — recall@10 0.900 has a 95%
 bootstrap CI of **[0.750, 1.000]**, so a 0.05 swing is within noise. The 1,749-example silver

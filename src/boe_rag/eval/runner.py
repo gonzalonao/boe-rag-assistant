@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from boe_rag.eval.dataset import EvalExample
+from boe_rag.eval.equivalence import TextEquivalence
 from boe_rag.eval.metrics import RetrievalMetrics, evaluate_retrieval
 from boe_rag.eval.retriever import DenseRetriever, Embedder, FloatMatrix, Searcher
 
@@ -50,6 +51,7 @@ def evaluate_searcher(
     examples: Sequence[EvalExample],
     k: int = 10,
     retrieve_n: int | None = None,
+    equivalence: TextEquivalence | None = None,
 ) -> tuple[RetrievalMetrics, list[ExampleResult]]:
     """Score an already-indexed retriever over the eval set.
 
@@ -62,6 +64,10 @@ def evaluate_searcher(
         k: Cut-off rank for the reported @k metrics.
         retrieve_n: How many candidates to retrieve per query; defaults to ``k``.
             Set larger than ``k`` to also measure deeper recall.
+        equivalence: Optional byte-identical text equivalence. When given, the
+            ranking and relevant set are mapped onto canonical class ids (and the
+            ranking de-duplicated) so that retrieving any byte-identical copy of a
+            gold passage counts as a hit. Stored ids become canonical ids.
 
     Returns:
         The aggregated metrics and the per-example results.
@@ -71,14 +77,21 @@ def evaluate_searcher(
     results: list[ExampleResult] = []
     for example in examples:
         retrieved = [cid for cid, _ in searcher.search(example.question, depth)]
-        relevant = frozenset(example.relevant_chunk_ids)
-        scored.append((retrieved, relevant))
+        if equivalence is not None:
+            ranking: list[str] = equivalence.canonical_sequence(retrieved)
+            relevant = equivalence.canonical_set(example.relevant_chunk_ids)
+            stored_relevant = tuple(sorted(relevant))
+        else:
+            ranking = retrieved
+            relevant = frozenset(example.relevant_chunk_ids)
+            stored_relevant = example.relevant_chunk_ids
+        scored.append((ranking, relevant))
         results.append(
             ExampleResult(
                 example_id=example.example_id,
-                retrieved_ids=tuple(retrieved),
-                relevant_ids=example.relevant_chunk_ids,
-                first_relevant_rank=_first_relevant_rank(retrieved, relevant),
+                retrieved_ids=tuple(ranking),
+                relevant_ids=stored_relevant,
+                first_relevant_rank=_first_relevant_rank(ranking, relevant),
             )
         )
     metrics = evaluate_retrieval(scored, k=k)
@@ -131,6 +144,7 @@ def run_retrieval_eval(
     k: int = 10,
     retrieve_n: int | None = None,
     precomputed: tuple[Sequence[str], FloatMatrix] | None = None,
+    equivalence: TextEquivalence | None = None,
 ) -> tuple[RetrievalMetrics, list[ExampleResult]]:
     """Index the corpus with the dense retriever and evaluate it.
 
@@ -144,6 +158,8 @@ def run_retrieval_eval(
             Set larger than ``k`` to also measure deeper recall.
         precomputed: Optional ``(ids, matrix)`` precomputed passage embeddings;
             used in place of encoding when the ids match the corpus.
+        equivalence: Optional byte-identical text equivalence; see
+            :func:`evaluate_searcher`.
 
     Returns:
         The aggregated metrics and the per-example results.
@@ -151,4 +167,6 @@ def run_retrieval_eval(
     retriever = build_dense_searcher(
         chunk_ids, texts, embedder, precomputed=precomputed
     )
-    return evaluate_searcher(retriever, examples, k=k, retrieve_n=retrieve_n)
+    return evaluate_searcher(
+        retriever, examples, k=k, retrieve_n=retrieve_n, equivalence=equivalence
+    )
