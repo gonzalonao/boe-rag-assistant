@@ -104,3 +104,25 @@ def test_health_is_not_rate_limited() -> None:
     client = TestClient(create_app(_FakeEngine(), rate_limit=1))
     assert client.get("/health").status_code == 200
     assert client.get("/health").status_code == 200
+
+
+def test_cors_allows_configured_origin() -> None:
+    """A configured frontend origin gets an Access-Control-Allow-Origin header."""
+    origin = "https://boe-rag.example.app"
+    client = TestClient(create_app(_FakeEngine(), cors_origins=[origin]))
+    response = client.post(
+        "/search", json={"query": "IVA", "k": 5}, headers={"origin": origin}
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+
+
+def test_cors_absent_by_default() -> None:
+    """With no configured origins the API stays same-origin (no CORS header)."""
+    client = TestClient(create_app(_FakeEngine()))
+    response = client.post(
+        "/search",
+        json={"query": "IVA", "k": 5},
+        headers={"origin": "https://x.example"},
+    )
+    assert "access-control-allow-origin" not in response.headers
