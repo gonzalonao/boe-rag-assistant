@@ -45,9 +45,12 @@ tables, and reproduction commands in [Evaluation](#evaluation-phase-2).
 
 > **Production corpus.** The deployed corpus has since been widened to **2015–present**
 > (**25,419 chunks**, ≈1,043 documents). On that larger, harder corpus the dense-only baseline
-> measures **recall@10 0.85 · MRR 0.674** — the honest drop from removing the 2024 slice's
-> saturation ceiling (11× more passages compete for the top 10). Re-running the full ablation
-> (hybrid · rerank · chunking) on the wider corpus is a tracked follow-up.
+> measures **recall@10 0.90 · MRR 0.691** — scored crediting byte-identical duplicate clauses as
+> interchangeable hits (a measured 2.9% of the corpus repeats verbatim, mostly legitimate
+> cross-document legal text; see [Design](docs/DESIGN.md)). This is the honest level after removing
+> the 2024 slice's saturation ceiling (11× more passages compete for the top 10). The full
+> production-corpus ablation — where reranking still recovers **recall@10 1.000** — is in
+> [Evaluation](#evaluation-phase-2).
 
 **With error bars.** Twenty gold questions carry wide uncertainty — recall@10 0.900 has a 95%
 bootstrap CI of **[0.750, 1.000]**, so a 0.05 swing is within noise. The 1,749-example silver
@@ -283,6 +286,43 @@ python scripts/run_chunking_ablation.py --corpus data/corpus/boe-2024.parquet \
 ```
 
 > Recall is saturated at this scale; finer signal needs the larger eval set (see roadmap).
+
+### Production corpus (2015–present, 25,419 chunks)
+
+The ablations above developed the pipeline on the 2024 slice, where recall saturates. Re-run on
+the deployed **2015–present** corpus (11× larger, scored with byte-identical text-equivalence so
+duplicated clauses are credited fairly), the pipeline's shape holds — with one honest nuance:
+
+| Retriever | Recall@10 | Precision@10 | Hit rate@10 | MRR | nDCG@10 |
+|---|---|---|---|---|---|
+| dense (baseline) | 0.900 | 0.090 | 0.900 | 0.691 | 0.740 |
+| BM25 | 0.900 | 0.090 | 0.900 | 0.678 | 0.732 |
+| hybrid (RRF) | 0.850 | 0.085 | 0.850 | 0.746 | 0.766 |
+| **hybrid + cross-encoder** | **1.000** | **0.100** | **1.000** | **0.862** | **0.894** |
+
+On this harder corpus **hybrid RRF trades a recall point (0.900 → 0.850) for sharper ranking
+(MRR 0.691 → 0.746)** — fusion occasionally displaces a dense hit from the top 10 when 11× more
+passages compete. **Reranking erases the trade-off**: the cross-encoder recovers full recall
+(**1.000**) and lifts MRR to **0.862** — this two-stage retrieve-then-rerank is what the live demo
+serves. Chunking (document-granularity, no equivalence) confirms the production choice:
+
+| Strategy | Recall@10 | Hit rate@10 | MRR | nDCG@10 |
+|---|---|---|---|---|
+| **article (current)** | 0.950 | 0.950 | **0.902** | **0.913** |
+| fixed-size (1000/150) | 0.950 | 0.950 | 0.877 | 0.895 |
+| whole-document | 0.950 | 0.950 | 0.824 | 0.849 |
+
+Article-level chunking stays the best ranking strategy and uniquely supports exact article
+citations. Reproduce any of these by pointing the ablation scripts at the production corpus:
+
+```bash
+python scripts/run_retrieval_ablation.py --corpus data/corpus/boe-2015-present.parquet \
+    --out reports/retrieval_hybrid
+python scripts/run_rerank_ablation.py    --corpus data/corpus/boe-2015-present.parquet \
+    --out reports/retrieval_rerank
+python scripts/run_chunking_ablation.py  --corpus data/corpus/boe-2015-present.parquet \
+    --out reports/retrieval_chunking
+```
 
 ### End-to-end (answer quality)
 

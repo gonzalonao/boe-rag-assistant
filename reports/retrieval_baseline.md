@@ -1,10 +1,11 @@
 # Retrieval evaluation — baseline
 
-- **Generated:** 2026-06-21 00:29 UTC
+- **Generated:** 2026-06-24 00:04 UTC
 - **Model:** `intfloat/multilingual-e5-small`
 - **Corpus:** `boe-2015-present.parquet` (25419 chunks)
 - **Queries:** 20
 - **Retrieved per query:** 20
+- **Scoring:** byte-identical text equivalence (739 duplicate chunks folded)
 
 ## Metrics @10
 
@@ -12,11 +13,11 @@ Confidence intervals are 95% bootstrap (per-query resampling).
 
 | Metric | Value | 95% CI |
 |---|---|---|
-| Recall@10 | 0.850 | [0.700, 1.000] |
-| Precision@10 | 0.085 | — |
-| Hit rate@10 | 0.850 | — |
-| MRR | 0.674 | [0.495, 0.835] |
-| nDCG@10 | 0.715 | — |
+| Recall@10 | 0.900 | [0.750, 1.000] |
+| Precision@10 | 0.090 | — |
+| Hit rate@10 | 0.900 | — |
+| MRR | 0.691 | [0.524, 0.843] |
+| nDCG@10 | 0.740 | — |
 
 ## Per-question first-hit rank
 
@@ -24,7 +25,7 @@ Confidence intervals are 95% bootstrap (per-query resampling).
 |---|---|
 | q001 | 13 |
 | q002 | 2 |
-| q003 | MISS |
+| q003 | 3 |
 | q004 | 1 |
 | q005 | 2 |
 | q006 | 1 |
@@ -43,4 +44,4 @@ Confidence intervals are 95% bootstrap (per-query resampling).
 | q018 | MISS |
 | q019 | 1 |
 
-**Misses (2):** q003, q018
+**Misses (1):** q018

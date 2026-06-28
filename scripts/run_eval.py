@@ -21,6 +21,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from boe_rag.eval.dataset import load_evalset
 from boe_rag.eval.embedding import DEFAULT_MODEL, E5Embedder
+from boe_rag.eval.equivalence import TextEquivalence, build_text_equivalence
 from boe_rag.eval.metrics import RetrievalMetrics, recall_at_k, reciprocal_rank
 from boe_rag.eval.qdrant_store import connect_searcher
 from boe_rag.eval.retriever import FloatMatrix, load_embeddings
@@ -67,11 +68,19 @@ def _render_report(
     retrieve_n: int,
     recall_ci: BootstrapCI,
     mrr_ci: BootstrapCI,
+    equivalence: TextEquivalence | None,
 ) -> str:
     """Render the evaluation results as a Markdown report."""
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     misses = [r for r in results if r.first_relevant_rank is None]
     pct = round(recall_ci.confidence * 100)
+    if equivalence is not None:
+        scoring = (
+            f"byte-identical text equivalence "
+            f"({equivalence.num_redundant} duplicate chunks folded)"
+        )
+    else:
+        scoring = "raw chunk ids (no text equivalence)"
     lines = [
         "# Retrieval evaluation — baseline",
         "",
@@ -80,6 +89,7 @@ def _render_report(
         f"- **Corpus:** `{corpus.name}` ({num_chunks} chunks)",
         f"- **Queries:** {metrics.num_queries}",
         f"- **Retrieved per query:** {retrieve_n}",
+        f"- **Scoring:** {scoring}",
         "",
         f"## Metrics @{metrics.k}",
         "",
@@ -159,6 +169,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--retrieve-n", type=int, default=20, help="Candidates retrieved per query."
     )
     parser.add_argument(
+        "--no-text-equivalence",
+        action="store_true",
+        help="Disable byte-identical text-equivalence scoring. By default, "
+        "retrieving any passage byte-identical to a gold chunk counts as a hit, "
+        "so an arbitrary tie-break among duplicated clauses is not scored as a "
+        "miss. Use this flag to score raw chunk ids instead.",
+    )
+    parser.add_argument(
         "--bootstrap-resamples",
         type=int,
         default=10_000,
@@ -188,6 +206,14 @@ def main(argv: list[str] | None = None) -> int:
     chunk_ids, texts = _load_corpus(args.corpus)
     examples = load_evalset(args.evalset)
     embedder = E5Embedder(args.model)
+    equivalence: TextEquivalence | None = None
+    if not args.no_text_equivalence:
+        equivalence = build_text_equivalence(chunk_ids, texts)
+        logger.info(
+            "Text-equivalence scoring on: %d byte-identical duplicate chunks "
+            "folded into canonical classes.",
+            equivalence.num_redundant,
+        )
     if (args.qdrant_url or args.qdrant_path) and args.qdrant_collection:
         location = args.qdrant_url or f"path:{args.qdrant_path}"
         logger.info(
@@ -203,7 +229,11 @@ def main(argv: list[str] | None = None) -> int:
             exact=args.qdrant_exact,
         )
         metrics, results = evaluate_searcher(
-            searcher, examples, k=args.k, retrieve_n=args.retrieve_n
+            searcher,
+            examples,
+            k=args.k,
+            retrieve_n=args.retrieve_n,
+            equivalence=equivalence,
         )
     else:
         precomputed: tuple[list[str], FloatMatrix] | None = None
@@ -220,6 +250,7 @@ def main(argv: list[str] | None = None) -> int:
             k=args.k,
             retrieve_n=args.retrieve_n,
             precomputed=precomputed,
+            equivalence=equivalence,
         )
     recall_ci, mrr_ci = _confidence_intervals(
         results, args.k, n_resamples=args.bootstrap_resamples, seed=args.seed
@@ -235,10 +266,15 @@ def main(argv: list[str] | None = None) -> int:
         retrieve_n=args.retrieve_n,
         recall_ci=recall_ci,
         mrr_ci=mrr_ci,
+        equivalence=equivalence,
     )
     payload: dict[str, object] = dict(metrics.as_dict())
     payload["recall_at_k_ci"] = recall_ci.as_dict()
     payload["mrr_ci"] = mrr_ci.as_dict()
+    payload["text_equivalence"] = equivalence is not None
+    payload["text_equivalence_folded"] = (
+        equivalence.num_redundant if equivalence is not None else 0
+    )
     args.out.with_suffix(".md").write_text(report, encoding="utf-8")
     args.out.with_suffix(".json").write_text(
         json.dumps(payload, indent=2), encoding="utf-8"

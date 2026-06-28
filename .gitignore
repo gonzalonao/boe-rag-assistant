@@ -38,6 +38,11 @@ eval_data/*.processed
 eval_data/silver_train.jsonl
 eval_data/silver_test.jsonl
 
+# Arc-6 fine-tune go/no-go comparison run outputs (regenerable via
+# scripts/compare_models.py; the committed narrative is reports/finetune_result.md).
+reports/finetune_compare*.json
+reports/finetune_compare*.md
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

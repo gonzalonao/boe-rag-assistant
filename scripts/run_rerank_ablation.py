@@ -26,6 +26,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from boe_rag.eval.cross_encoder import DEFAULT_RERANK_MODEL, CrossEncoderReranker
 from boe_rag.eval.dataset import load_evalset
 from boe_rag.eval.embedding import DEFAULT_MODEL, E5Embedder
+from boe_rag.eval.equivalence import TextEquivalence, build_text_equivalence
 from boe_rag.eval.hybrid import HybridRetriever
 from boe_rag.eval.metrics import RetrievalMetrics
 from boe_rag.eval.report import render_comparison_report
@@ -67,6 +68,13 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_RERANK_POOL,
         help="First-stage candidates fed to the reranker.",
+    )
+    parser.add_argument(
+        "--no-text-equivalence",
+        action="store_true",
+        help="Disable byte-identical text-equivalence scoring (see run_eval.py). "
+        "By default, retrieving any passage identical to a gold chunk counts as a "
+        "hit, matching the committed retrieval baseline.",
     )
     parser.add_argument(
         "--out",
@@ -117,6 +125,13 @@ def main(argv: list[str] | None = None) -> int:
     chunk_ids, texts = _load_corpus(args.corpus)
     examples = load_evalset(args.evalset)
     id_to_text = dict(zip(chunk_ids, texts, strict=True))
+    equivalence: TextEquivalence | None = None
+    if not args.no_text_equivalence:
+        equivalence = build_text_equivalence(chunk_ids, texts)
+        logger.info(
+            "Text-equivalence scoring on: %d byte-identical duplicate chunks folded.",
+            equivalence.num_redundant,
+        )
 
     logger.info("Embedding %d chunks with %s ...", len(chunk_ids), args.model)
     dense = DenseRetriever(E5Embedder(args.model))
@@ -138,7 +153,11 @@ def main(argv: list[str] | None = None) -> int:
     for name, retriever in retrievers.items():
         logger.info("Evaluating %s ...", name)
         metrics, _ = evaluate_searcher(
-            retriever, examples, k=args.k, retrieve_n=args.retrieve_n
+            retriever,
+            examples,
+            k=args.k,
+            retrieve_n=args.retrieve_n,
+            equivalence=equivalence,
         )
         results[name] = metrics
 
