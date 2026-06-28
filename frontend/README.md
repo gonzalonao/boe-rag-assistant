@@ -34,11 +34,22 @@ npm run typecheck   # tsc --noEmit, strict
 npm run build       # typecheck + production build to dist/
 ```
 
-## Deploy
+## Deploy (GitHub Pages)
 
-`npm run build` emits a static `dist/`. Deploy it to any static host (Vercel, Netlify,
-GitHub Pages). Set `VITE_API_BASE_URL` as a build-time env var on the host, and add the
-deployed origin to the API's `BOE_CORS_ORIGINS` so the browser is allowed to call it.
+`.github/workflows/deploy-frontend.yml` builds this app and publishes it to GitHub Pages when
+frontend changes land on `main` (or via *Run workflow*). It sets `VITE_BASE=/boe-rag-assistant/`
+(the project-site subpath) and `VITE_API_BASE_URL` to the HF Space (override with the
+`API_BASE_URL` repo variable).
+
+One-time setup:
+
+1. Repo **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+2. Add the published origin `https://gonzalonao.github.io` to the API's `BOE_CORS_ORIGINS`
+   (HF Space secret/variable) so the browser is allowed to call it cross-origin, then redeploy
+   the Space.
+
+`npm run build` emits a static `dist/`; the same artifact deploys to any other static host
+(Vercel/Netlify) — set `VITE_API_BASE_URL` there and serve from the root (`VITE_BASE` unset).
 
 ## Layout
 

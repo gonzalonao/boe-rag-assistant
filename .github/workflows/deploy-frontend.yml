@@ -1,0 +1,62 @@
+# Build the React frontend and publish it to GitHub Pages.
+#
+# Fires when the frontend changes reach `main` (the release branch), or on
+# demand. The API base URL is the public HF Space (override with the
+# `API_BASE_URL` repo variable); the Pages project site is served under
+# /boe-rag-assistant/, so VITE_BASE is set to match.
+name: Deploy frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deploy; don't cancel an in-progress run.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Build
+        env:
+          VITE_BASE: /boe-rag-assistant/
+          VITE_API_BASE_URL: ${{ vars.API_BASE_URL || 'https://gonzalonao-boe-rag-assistant.hf.space' }}
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
