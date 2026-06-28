@@ -195,7 +195,7 @@ def build_app(corpus_path: Path | None = None) -> object:
         The ASGI application (FastAPI with Gradio mounted at the root).
     """
     engine = build_engine(corpus_path)
-    api = create_app(engine)
+    api = create_app(engine, cors_origins=_SETTINGS.cors_origins_list)
     demo = build_ui(engine, _quality_markdown())
     return gr.mount_gradio_app(api, demo, path="/")
 

@@ -12,8 +12,10 @@ from __future__ import annotations
 import logging
 import time
 from collections import OrderedDict
+from collections.abc import Sequence
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 
@@ -87,6 +89,7 @@ def create_app(
     cache_size: int = DEFAULT_CACHE_SIZE,
     rate_limit: int = DEFAULT_RATE_LIMIT,
     rate_window: float = DEFAULT_RATE_WINDOW,
+    cors_origins: Sequence[str] | None = None,
 ) -> FastAPI:
     """Build the FastAPI app around a RAG engine.
 
@@ -95,6 +98,9 @@ def create_app(
         cache_size: Max number of distinct answers to cache.
         rate_limit: Max requests per client per ``rate_window``.
         rate_window: Rate-limit window in seconds.
+        cors_origins: Browser origins allowed to call the API cross-origin (the
+            deployed frontend URL). When empty/omitted, no CORS middleware is
+            added and the API is same-origin only.
 
     Returns:
         The configured FastAPI application.
@@ -104,6 +110,13 @@ def create_app(
         version="0.1.0",
         description="Answers about Spanish legislation with verifiable BOE citations.",
     )
+    if cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(cors_origins),
+            allow_methods=["GET", "POST"],
+            allow_headers=["*"],
+        )
     cache = _AnswerCache(cache_size)
     limiter = _RateLimiter(rate_limit, rate_window)
 

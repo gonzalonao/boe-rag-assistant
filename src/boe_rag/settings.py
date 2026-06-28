@@ -46,6 +46,8 @@ class Settings(BaseSettings):
         corpus_path: Corpus Parquet path (``BOE_CORPUS_PATH``).
         embeddings_path: Precomputed-embeddings ``.npz`` (``BOE_EMBEDDINGS_PATH``).
         reports_dir: Directory of eval report JSON (``BOE_REPORTS_DIR``).
+        cors_origins: Comma-separated browser origins allowed to call the API
+            cross-origin (``BOE_CORS_ORIGINS``); see :attr:`cors_origins_list`.
         qdrant_url: Qdrant server URL (``QDRANT_URL``); when set (or
             ``qdrant_path``), the dense leg is served from Qdrant instead of the
             in-memory NumPy index.
@@ -77,6 +79,8 @@ class Settings(BaseSettings):
     )
     reports_dir: Path | None = Field(default=None, validation_alias="BOE_REPORTS_DIR")
 
+    cors_origins: str | None = Field(default=None, validation_alias="BOE_CORS_ORIGINS")
+
     qdrant_url: str | None = Field(default=None, validation_alias="QDRANT_URL")
     qdrant_path: str | None = Field(default=None, validation_alias="QDRANT_PATH")
     qdrant_collection: str | None = Field(
@@ -105,6 +109,20 @@ class Settings(BaseSettings):
         default=None, validation_alias="LANGFUSE_SECRET_KEY"
     )
     langfuse_host: str | None = Field(default=None, validation_alias="LANGFUSE_HOST")
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Allowed CORS origins, parsed from the comma-separated ``cors_origins``.
+
+        Returns the configured browser origins (e.g. the deployed frontend URL)
+        that may call the JSON API cross-origin; empty when unset, in which case
+        no CORS middleware is added and the API is same-origin only.
+        """
+        if not self.cors_origins:
+            return []
+        return [
+            origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
+        ]
 
     def as_env(self) -> dict[str, str]:
         """Return the set values keyed by their canonical environment-variable name.
