@@ -2,28 +2,28 @@
   "article (current)": {
     "k": 10,
     "num_queries": 20,
-    "recall_at_k": 1.0,
-    "precision_at_k": 0.1,
-    "hit_rate_at_k": 1.0,
-    "mrr": 0.975,
-    "ndcg_at_k": 0.9815464876785729
+    "recall_at_k": 0.95,
+    "precision_at_k": 0.095,
+    "hit_rate_at_k": 0.95,
+    "mrr": 0.9022727272727273,
+    "ndcg_at_k": 0.9130929753571457
   },
   "fixed-size": {
     "k": 10,
     "num_queries": 20,
-    "recall_at_k": 1.0,
-    "precision_at_k": 0.1,
-    "hit_rate_at_k": 1.0,
-    "mrr": 0.9125,
-    "ndcg_at_k": 0.9346268032608155
+    "recall_at_k": 0.95,
+    "precision_at_k": 0.095,
+    "hit_rate_at_k": 0.95,
+    "mrr": 0.8767857142857143,
+    "ndcg_at_k": 0.8946394630357186
   },
   "whole-document": {
     "k": 10,
     "num_queries": 20,
-    "recall_at_k": 1.0,
-    "precision_at_k": 0.1,
-    "hit_rate_at_k": 1.0,
-    "mrr": 0.975,
-    "ndcg_at_k": 0.9815464876785729
+    "recall_at_k": 0.95,
+    "precision_at_k": 0.095,
+    "hit_rate_at_k": 0.95,
+    "mrr": 0.8240522875816992,
+    "ndcg_at_k": 0.8494456399281252
   }
 }
