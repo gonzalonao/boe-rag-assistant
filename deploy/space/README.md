@@ -12,11 +12,14 @@ short_description: Eval-driven RAG over Spain's official state gazette (BOE).
 
 # ⚖️ BOE RAG Assistant
 
-Ask questions about 2024 Spanish legislation (BOE — *Boletín Oficial del Estado*)
-and get answers grounded in the official text, with verifiable citations linking
-back to boe.es.
+Ask questions about Spanish legislation (BOE — *Boletín Oficial del Estado*) and
+get answers grounded in the official text, with verifiable citations linking back
+to boe.es.
 
-This Space runs an eval-driven Retrieval-Augmented Generation pipeline:
+This Space serves the **JSON API** (`/ask`, `/search`, `/health`, `/docs`) of an
+eval-driven Retrieval-Augmented Generation pipeline. The user interface is a
+custom React app — **opening this Space redirects you to it**:
+**[gonzalonao.github.io/boe-rag-assistant](https://gonzalonao.github.io/boe-rag-assistant/)**.
 
 1. **Hybrid retrieval** — sparse BM25 + dense embeddings fused with Reciprocal
    Rank Fusion.
@@ -24,9 +27,6 @@ This Space runs an eval-driven Retrieval-Augmented Generation pipeline:
    from 0.90 to 1.00 on the golden set.
 3. **Grounded generation** — cite-or-refuse prompting, so the model answers only
    from the retrieved BOE passages or declines.
-
-When answer generation is rate-limited (free LLM tier), the chat degrades
-gracefully to showing the most relevant retrieved passages.
 
 > Source code, full eval reports, and engineering notes:
 > **[github.com/gonzalonao/boe-rag-assistant](https://github.com/gonzalonao/boe-rag-assistant)**

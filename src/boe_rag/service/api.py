@@ -4,7 +4,9 @@ Endpoints: ``/health`` (readiness), ``/search`` (raw retrieval), and ``/ask``
 (grounded, cited answer). The app is built from an injected :class:`Engine`, so
 it is unit-tested with a fake engine — no models or API keys in CI. Identical
 answers are cached, and a lightweight per-client rate limit protects the free
-LLM tier.
+LLM tier. The UI is a separate single-page app (``frontend/``) that consumes
+this API cross-origin; when a ``frontend_url`` is configured the API root
+(``/``) redirects there, so the deployment URL still lands on the live UI.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from collections.abc import Sequence
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import RequestResponseEndpoint
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from boe_rag.llm.base import LLMError
 from boe_rag.service.engine import Engine
@@ -37,8 +39,8 @@ DEFAULT_CACHE_SIZE = 256
 DEFAULT_RATE_LIMIT = 60
 #: Rate-limit window in seconds.
 DEFAULT_RATE_WINDOW = 60.0
-#: Only the expensive API endpoints are rate-limited; the Gradio UI mounted at
-#: the root issues many internal requests and must not be throttled.
+#: Only the expensive LLM/retrieval endpoints are rate-limited; readiness probes
+#: and the root redirect are exempt so the UI and health checks are never blocked.
 _RATE_LIMITED_PATHS = ("/ask", "/search")
 
 
@@ -90,6 +92,7 @@ def create_app(
     rate_limit: int = DEFAULT_RATE_LIMIT,
     rate_window: float = DEFAULT_RATE_WINDOW,
     cors_origins: Sequence[str] | None = None,
+    frontend_url: str | None = None,
 ) -> FastAPI:
     """Build the FastAPI app around a RAG engine.
 
@@ -101,6 +104,9 @@ def create_app(
         cors_origins: Browser origins allowed to call the API cross-origin (the
             deployed frontend URL). When empty/omitted, no CORS middleware is
             added and the API is same-origin only.
+        frontend_url: When set, the API root (``/``) redirects browsers here —
+            the deployed single-page UI. When omitted there is no root route and
+            the API is JSON-only (``/docs`` still serves the OpenAPI explorer).
 
     Returns:
         The configured FastAPI application.
@@ -119,6 +125,12 @@ def create_app(
         )
     cache = _AnswerCache(cache_size)
     limiter = _RateLimiter(rate_limit, rate_window)
+
+    if frontend_url:
+
+        @app.get("/", include_in_schema=False)
+        def root() -> RedirectResponse:
+            return RedirectResponse(url=frontend_url)
 
     @app.middleware("http")
     async def _rate_limit(

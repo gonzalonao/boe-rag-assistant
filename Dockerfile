@@ -32,7 +32,7 @@ RUN pip install --no-cache-dir --user \
 # Install the package (dependencies cached on their own layer).
 COPY --chown=user pyproject.toml README.md ./
 COPY --chown=user src ./src
-RUN pip install --no-cache-dir --user ".[api,ml,ui,hub]"
+RUN pip install --no-cache-dir --user ".[api,ml,hub]"
 
 # App data and the build scripts.
 COPY --chown=user reports ./reports

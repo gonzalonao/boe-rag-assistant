@@ -119,9 +119,11 @@ The contract every change is held to (`src/boe_rag/eval/`):
   than a tolerance below the committed `eval_data/retrieval_baseline.json`.
 
 ## 6. Serving and operations (`service/`)
-- **One engine, two surfaces.** FastAPI (`api.py`: `/ask`, `/search`, `/health`) and a Gradio
-  chat UI (`ui.py`) are mounted on the **same app** over the **same** `Engine` instance, so the
-  demo and the JSON API can never drift.
+- **API and UI are decoupled.** FastAPI (`api.py`: `/ask`, `/search`, `/health`) serves the JSON
+  API over a single `Engine` instance; the user interface is a separate React/Vite SPA
+  (`frontend/`) that consumes it cross-origin (CORS gated on `BOE_CORS_ORIGINS`). The API root
+  redirects to the deployed UI (`BOE_FRONTEND_URL`), so the Space URL still lands on it. The web
+  client and the service deploy and version independently.
 - **Resilience.** A bounded-LRU answer cache; a fixed-window per-IP rate limiter scoped to
   `/ask` + `/search`; graceful degradation — when the LLM tier is rate-limited, `/ask` returns
   the retrieved passages instead of failing, and `/search` never needed an LLM.

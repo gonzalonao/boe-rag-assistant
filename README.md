@@ -11,17 +11,20 @@ against a curated golden dataset before it ships.
 [![Live demo](https://img.shields.io/badge/%F0%9F%A4%97%20demo-Hugging%20Face%20Space-yellow)](https://huggingface.co/spaces/gonzalonao/boe-rag-assistant)
 
 **Tech stack (built):** Python · sentence-transformers (multilingual-E5 + cross-encoder) ·
-NumPy in-memory hybrid index (dense + BM25/RRF) · FastAPI · Gradio · Docker ·
-Hugging Face Hub (datasets, models, Spaces) · Langfuse (opt-in tracing) · GitHub Actions
+NumPy in-memory hybrid index (dense + BM25/RRF) · FastAPI · React + Vite (TypeScript SPA) ·
+Docker · Hugging Face Hub (datasets, models, Spaces) · GitHub Pages · Langfuse (opt-in
+tracing) · GitHub Actions
 
 **Planned:** Qdrant (vector store at full-corpus scale) · ONNX Runtime (int8 reranker) ·
 fine-tuned Spanish embedding model · RAGAS (eval metrics)
 
 ## Demo
 
-[**▶ Try the live demo**](https://huggingface.co/spaces/gonzalonao/boe-rag-assistant) — ask a
-question about Spanish law in natural language and get an answer with citations linked back to
-boe.es (or an honest refusal when the corpus doesn't cover it).
+[**▶ Try the live demo**](https://gonzalonao.github.io/boe-rag-assistant/) — a custom React UI
+(deployed on GitHub Pages) talking to the JSON API on a Hugging Face Space. Ask a question about
+Spanish law in natural language and get an answer with citations linked back to boe.es (or an
+honest refusal when the corpus doesn't cover it). The [Space root](https://huggingface.co/spaces/gonzalonao/boe-rag-assistant)
+redirects to the same UI.
 
 <!-- To embed the demo recording: add docs/media/demo.gif (see docs/media/README.md) and
      uncomment the next line.
@@ -145,8 +148,8 @@ python scripts/push_corpus_to_hub.py \
   (recall 0.900→1.000), and a chunking ablation validating article-level chunks
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
 - [ ] **Phase 5** — Grounded generation with citation validation
-- [x] **Phase 6** — Serving: FastAPI service (`/ask`, `/search`, `/health`) + Gradio demo UI
-  (chat with linked citations + a Quality tab) + containerised Hugging Face Space deployment
+- [x] **Phase 6** — Serving: FastAPI service (`/ask`, `/search`, `/health`) + a custom React/Vite
+  chat UI (linked citations) deployed on GitHub Pages + containerised Hugging Face Space deployment
 - [ ] **Phase 7** — Scheduled incremental ingestion + observability (Langfuse tracing
   wired via the `Tracer` seam; scheduled ingestion pending)
 
@@ -409,19 +412,27 @@ uvicorn boe_rag.service.app:app --port 8000
 
 ## Demo UI (Phase 6)
 
-A Gradio chat UI (`src/boe_rag/service/ui.py`) is mounted at the root of the same
-FastAPI app, so the demo and the JSON API share one `Engine` and can never drift. It
-has an **Assistant** tab (ask a question, get a grounded answer with each source linked
-back to boe.es) and a **Quality** tab that surfaces the measured eval metrics. When the
-free LLM tier is rate-limited, the chat degrades gracefully to showing the retrieved
-passages instead of failing, and `/search` keeps working without an LLM.
+The user interface is a **custom React + Vite single-page app** ([`frontend/`](frontend/),
+TypeScript in `strict` mode, Biome) that consumes the JSON API cross-origin — a clean
+separation between the Python service and the web client. It is deployed independently to
+**GitHub Pages** ([`.github/workflows/deploy-frontend.yml`](.github/workflows/deploy-frontend.yml));
+the API root (`/`) redirects browsers to it (`BOE_FRONTEND_URL`), so the Space URL still lands
+on the live UI. Ask a question, get a grounded answer with each source linked back to boe.es.
 
 ```bash
-pip install -e ".[api,ml,ui]"          # adds Gradio
-$env:OPENROUTER_API_KEY = "..."        # or GROQ_API_KEY / GEMINI_API_KEY
+# Terminal 1 — the API (CORS open for the dev server origin):
+pip install -e ".[api,ml]"
+$env:OPENROUTER_API_KEY = "..."                 # or GROQ_API_KEY / GEMINI_API_KEY
+$env:BOE_CORS_ORIGINS = "http://localhost:5173"
 uvicorn boe_rag.service.app:app --port 8000
-# → http://localhost:8000/        (chat UI)
-# → http://localhost:8000/docs    (OpenAPI)
+# → http://localhost:8000/docs    (OpenAPI)   ·   GET / → redirects to BOE_FRONTEND_URL
+
+# Terminal 2 — the React dev server:
+cd frontend
+npm install
+# point the SPA at the local API (frontend/.env): VITE_API_BASE_URL=http://localhost:8000
+npm run dev
+# → http://localhost:5173/        (chat UI)
 ```
 
 ## Deployment (Phase 6)
@@ -452,7 +463,7 @@ tagged release. The only runtime secret is an LLM key — `OPENROUTER_API_KEY` (
 # Build and run the production image locally (mirrors the Space):
 docker build -t boe-rag .
 docker run --rm -p 7860:7860 -e OPENROUTER_API_KEY="..." boe-rag
-# → http://localhost:7860/
+# → http://localhost:7860/docs   (JSON API; GET / redirects to the deployed UI)
 ```
 
 ## Observability (Phase 6)
@@ -468,7 +479,7 @@ the question, with per-stage latency, inputs, and outputs:
 -->
 
 ```bash
-pip install -e ".[api,ml,ui,obs]"
+pip install -e ".[api,ml,obs]"
 $env:LANGFUSE_PUBLIC_KEY = "pk-lf-..."
 $env:LANGFUSE_SECRET_KEY = "sk-lf-..."
 $env:LANGFUSE_HOST = "https://cloud.langfuse.com"   # or your self-hosted instance
