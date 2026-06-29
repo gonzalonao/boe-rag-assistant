@@ -1,17 +1,22 @@
 """Serving entrypoint: assemble the real engine and expose the ASGI ``app``.
 
-Run with ``uvicorn boe_rag.service.app:app`` (the ``api`` + ``ui`` extras). This
-module loads the corpus and the embedding/rerank models at import time, so it is
-the production wiring — never imported by the unit tests, which inject a fake
-engine. The Gradio demo UI is mounted at ``/`` and the JSON API lives alongside
-it (``/ask``, ``/search``, ``/health``, ``/docs``).
+Run with ``uvicorn boe_rag.service.app:app`` (the ``api`` extra). This module
+loads the corpus and the embedding/rerank models at import time, so it is the
+production wiring — never imported by the unit tests, which inject a fake engine.
+It exposes the JSON API (``/ask``, ``/search``, ``/health``, ``/docs``); the user
+interface is a separate single-page app (``frontend/``) that consumes the API
+cross-origin. The API root (``/``) redirects to that deployed UI
+(``BOE_FRONTEND_URL``, defaulting to the GitHub Pages deployment).
 
 Configuration via environment (or a local ``.env`` — see ``.env.example`` and
 :func:`boe_rag.settings.load_environment`; real environment variables win):
     ``BOE_CORPUS_PATH``  path to the corpus Parquet (default the bundled 2024 set).
     ``BOE_EMBEDDINGS_PATH``  optional precomputed-embeddings ``.npz`` to skip the
         startup encode (see ``scripts/precompute_embeddings.py``).
-    ``BOE_REPORTS_DIR``  directory of eval report JSON for the Quality tab.
+    ``BOE_CORS_ORIGINS``  comma-separated browser origins allowed to call the API
+        cross-origin (the deployed UI); unset = same-origin only.
+    ``BOE_FRONTEND_URL``  where the API root (``/``) redirects; defaults to the
+        GitHub Pages UI.
     ``OPENROUTER_API_KEY`` / ``GROQ_API_KEY`` / ``GEMINI_API_KEY``  at least one is
         required for ``/ask`` (tried in that order; the first with a key leads).
     ``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY`` (+ optional ``LANGFUSE_HOST``)
@@ -21,12 +26,11 @@ Configuration via environment (or a local ``.env`` — see ``.env.example`` and
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
-import gradio as gr
 import pyarrow.parquet as pq
+from fastapi import FastAPI
 
 from boe_rag.eval.cross_encoder import CrossEncoderReranker
 from boe_rag.eval.embedding import E5Embedder
@@ -39,15 +43,15 @@ from boe_rag.llm.factory import FallbackProvider, build_available_providers
 from boe_rag.service.api import create_app
 from boe_rag.service.engine import ChunkInfo, RagEngine
 from boe_rag.service.tracing import build_tracer
-from boe_rag.service.ui import build_ui, render_quality_markdown
 from boe_rag.settings import load_environment
 
 logger = logging.getLogger(__name__)
 
 #: Default corpus location when ``BOE_CORPUS_PATH`` is unset.
 DEFAULT_CORPUS_PATH = Path("data/corpus/boe-2024.parquet")
-#: Default directory of eval report JSON when ``BOE_REPORTS_DIR`` is unset.
-DEFAULT_REPORTS_DIR = Path("reports")
+#: Where the API root redirects when ``BOE_FRONTEND_URL`` is unset — the live
+#: single-page UI deployed to GitHub Pages.
+DEFAULT_FRONTEND_URL = "https://gonzalonao.github.io/boe-rag-assistant/"
 
 #: Settings loaded once at import: reads the environment plus an optional ``.env``
 #: and exports it, so provider/tracing lookups below see ``.env`` values too.
@@ -167,37 +171,25 @@ def build_engine(corpus_path: Path | None = None) -> RagEngine:
     )
 
 
-def _load_json(path: Path) -> dict[str, object]:
-    """Load a JSON object from ``path``, or an empty dict if it is missing."""
-    if not path.is_file():
-        logger.warning("Report not found, Quality tab will note it: %s", path)
-        return {}
-    with path.open(encoding="utf-8") as handle:
-        data: dict[str, object] = json.load(handle)
-    return data
+def build_app(corpus_path: Path | None = None) -> FastAPI:
+    """Assemble the FastAPI JSON API around the production RAG engine.
 
-
-def _quality_markdown(reports_dir: Path | None = None) -> str:
-    """Render the Quality-tab Markdown from the eval report JSON files."""
-    directory = reports_dir or _SETTINGS.reports_dir or DEFAULT_REPORTS_DIR
-    retrieval = _load_json(directory / "retrieval_rerank.json")
-    e2e = _load_json(directory / "e2e_baseline.json")
-    return render_quality_markdown(retrieval, e2e)  # type: ignore[arg-type]
-
-
-def build_app(corpus_path: Path | None = None) -> object:
-    """Assemble the FastAPI app with the Gradio demo UI mounted at ``/``.
+    CORS is enabled for the configured frontend origins (``BOE_CORS_ORIGINS``)
+    and the root path redirects to the deployed single-page UI
+    (``BOE_FRONTEND_URL``, falling back to :data:`DEFAULT_FRONTEND_URL`).
 
     Args:
         corpus_path: Corpus Parquet path; defaults to the env/bundled location.
 
     Returns:
-        The ASGI application (FastAPI with Gradio mounted at the root).
+        The ASGI application (the FastAPI JSON API).
     """
     engine = build_engine(corpus_path)
-    api = create_app(engine, cors_origins=_SETTINGS.cors_origins_list)
-    demo = build_ui(engine, _quality_markdown())
-    return gr.mount_gradio_app(api, demo, path="/")
+    return create_app(
+        engine,
+        cors_origins=_SETTINGS.cors_origins_list,
+        frontend_url=_SETTINGS.frontend_url or DEFAULT_FRONTEND_URL,
+    )
 
 
 app = build_app()

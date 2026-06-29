@@ -48,6 +48,10 @@ class Settings(BaseSettings):
         reports_dir: Directory of eval report JSON (``BOE_REPORTS_DIR``).
         cors_origins: Comma-separated browser origins allowed to call the API
             cross-origin (``BOE_CORS_ORIGINS``); see :attr:`cors_origins_list`.
+        frontend_url: URL the API root (``/``) redirects browsers to
+            (``BOE_FRONTEND_URL``); the deployed single-page UI. When unset the
+            serving entrypoint supplies its own default, so the Space root always
+            lands on the live UI.
         qdrant_url: Qdrant server URL (``QDRANT_URL``); when set (or
             ``qdrant_path``), the dense leg is served from Qdrant instead of the
             in-memory NumPy index.
@@ -80,6 +84,7 @@ class Settings(BaseSettings):
     reports_dir: Path | None = Field(default=None, validation_alias="BOE_REPORTS_DIR")
 
     cors_origins: str | None = Field(default=None, validation_alias="BOE_CORS_ORIGINS")
+    frontend_url: str | None = Field(default=None, validation_alias="BOE_FRONTEND_URL")
 
     qdrant_url: str | None = Field(default=None, validation_alias="QDRANT_URL")
     qdrant_path: str | None = Field(default=None, validation_alias="QDRANT_PATH")

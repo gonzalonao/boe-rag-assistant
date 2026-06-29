@@ -126,3 +126,18 @@ def test_cors_absent_by_default() -> None:
         headers={"origin": "https://x.example"},
     )
     assert "access-control-allow-origin" not in response.headers
+
+
+def test_root_redirects_to_frontend() -> None:
+    """When a frontend URL is configured, the root redirects browsers to it."""
+    url = "https://gonzalonao.github.io/boe-rag-assistant/"
+    client = TestClient(create_app(_FakeEngine(), frontend_url=url))
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == url
+
+
+def test_root_absent_by_default() -> None:
+    """With no frontend URL the API is JSON-only and the root is unrouted."""
+    client = TestClient(create_app(_FakeEngine()))
+    assert client.get("/").status_code == 404
