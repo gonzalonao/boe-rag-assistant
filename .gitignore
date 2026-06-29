@@ -43,6 +43,12 @@ eval_data/silver_test.jsonl
 reports/finetune_compare*.json
 reports/finetune_compare*.md
 
+# Phase 7 weekly-refresh transient artifacts (produced in CI by
+# scripts/refresh_corpus.py + the eval-gate; the corpus itself lives on the Hub).
+reports/refresh_summary.json
+reports/refresh_eval.json
+reports/refresh_eval.md
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

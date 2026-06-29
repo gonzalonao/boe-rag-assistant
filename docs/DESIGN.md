@@ -119,9 +119,11 @@ The contract every change is held to (`src/boe_rag/eval/`):
   than a tolerance below the committed `eval_data/retrieval_baseline.json`.
 
 ## 6. Serving and operations (`service/`)
-- **One engine, two surfaces.** FastAPI (`api.py`: `/ask`, `/search`, `/health`) and a Gradio
-  chat UI (`ui.py`) are mounted on the **same app** over the **same** `Engine` instance, so the
-  demo and the JSON API can never drift.
+- **API and UI are decoupled.** FastAPI (`api.py`: `/ask`, `/search`, `/health`) serves the JSON
+  API over a single `Engine` instance; the user interface is a separate React/Vite SPA
+  (`frontend/`) that consumes it cross-origin (CORS gated on `BOE_CORS_ORIGINS`). The API root
+  redirects to the deployed UI (`BOE_FRONTEND_URL`), so the Space URL still lands on it. The web
+  client and the service deploy and version independently.
 - **Resilience.** A bounded-LRU answer cache; a fixed-window per-IP rate limiter scoped to
   `/ask` + `/search`; graceful degradation — when the LLM tier is rate-limited, `/ask` returns
   the retrieved passages instead of failing, and `/search` never needed an LLM.
@@ -133,6 +135,11 @@ The contract every change is held to (`src/boe_rag/eval/`):
   embeddings**, and model weights, so the running Space does no downloads and no startup encode.
   Each version tag triggers `deploy-space.yml`, which mirrors to the Space — every deploy is a
   tagged release.
+- **Self-refreshing corpus (Phase 7).** A weekly Action (`refresh-corpus.yml` + `refresh_corpus.py`,
+  pure core in `ingest/incremental.py`) crawls the latest BOE issues, folds in only new chunks by
+  stable `chunk_id`, and embeds *just* those. It republishes + factory-reboots the Space **only
+  after the same retrieval eval-gate clears the baseline** — *guarded* auto, so an unattended bad
+  crawl is blocked and surfaced as an issue rather than shipped to the live demo.
 - **Centralised config (`settings.py`).** A typed pydantic-settings model is the single source for
   every environment knob (LLM keys/models, corpus/embeddings/report paths, Langfuse). Entrypoints
   call `load_environment()`, which reads an optional `.env` and exports it without overriding real
