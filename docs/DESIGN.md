@@ -135,6 +135,11 @@ The contract every change is held to (`src/boe_rag/eval/`):
   embeddings**, and model weights, so the running Space does no downloads and no startup encode.
   Each version tag triggers `deploy-space.yml`, which mirrors to the Space — every deploy is a
   tagged release.
+- **Self-refreshing corpus (Phase 7).** A weekly Action (`refresh-corpus.yml` + `refresh_corpus.py`,
+  pure core in `ingest/incremental.py`) crawls the latest BOE issues, folds in only new chunks by
+  stable `chunk_id`, and embeds *just* those. It republishes + factory-reboots the Space **only
+  after the same retrieval eval-gate clears the baseline** — *guarded* auto, so an unattended bad
+  crawl is blocked and surfaced as an issue rather than shipped to the live demo.
 - **Centralised config (`settings.py`).** A typed pydantic-settings model is the single source for
   every environment knob (LLM keys/models, corpus/embeddings/report paths, Langfuse). Entrypoints
   call `load_environment()`, which reads an optional `.env` and exports it without overriding real

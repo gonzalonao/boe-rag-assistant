@@ -1,0 +1,128 @@
+name: Weekly corpus refresh
+
+# Phase 7 — scheduled incremental ingestion (guarded auto).
+#
+# Once a week: crawl the latest BOE issues, fold in only the new chunks, embed
+# just those, and run the retrieval eval-gate on the refreshed corpus. ONLY if
+# the gate clears the committed baseline does it republish the corpus +
+# embeddings to the Hub and factory-reboot the Space, so the live demo stays
+# current within a week without a human in the loop — and a bad crawl that would
+# regress retrieval is blocked and surfaced as an issue instead of shipped.
+#
+# Requires an `HF_TOKEN` repository secret (Hugging Face write token). The
+# schedule only fires once this file is on the default branch (main).
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Trailing window width in days (overlaps prior runs)."
+        default: "10"
+
+permissions:
+  contents: read
+  issues: write # to open an issue when a refresh is blocked or fails
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    # Skip on forks, which won't have the secret.
+    if: github.repository == 'gonzalonao/boe-rag-assistant'
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      CORPUS_REPO: gonzalonao/boe-corpus
+      SPACE_ID: gonzalonao/boe-rag-assistant
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-multilingual-e5-small
+
+      - name: Verify HF token is configured
+        run: |
+          if [ -z "${HF_TOKEN}" ]; then
+            echo "::error::HF_TOKEN secret is not set; add it in repo Settings → Secrets."
+            exit 1
+          fi
+
+      - name: Install dependencies (CPU torch + ml + hub)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[ml,hub]"
+
+      - name: Build refreshed corpus (crawl delta + embed new chunks)
+        id: build
+        run: |
+          python scripts/refresh_corpus.py \
+            --corpus-repo "${CORPUS_REPO}" \
+            --days "${{ github.event.inputs.days || '10' }}" \
+            --work-dir data/refresh \
+            --summary-out reports/refresh_summary.json
+          echo "new_chunks=$(jq -r '.new_chunks' reports/refresh_summary.json)" >> "$GITHUB_OUTPUT"
+          echo "corpus_path=$(jq -r '.corpus_path // empty' reports/refresh_summary.json)" >> "$GITHUB_OUTPUT"
+          echo "embeddings_path=$(jq -r '.embeddings_path // empty' reports/refresh_summary.json)" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Corpus refresh summary";
+            echo '```json';
+            cat reports/refresh_summary.json;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Eval-gate the refreshed corpus
+        if: steps.build.outputs.new_chunks != '0'
+        run: |
+          python scripts/run_eval.py \
+            --corpus "${{ steps.build.outputs.corpus_path }}" \
+            --embeddings "${{ steps.build.outputs.embeddings_path }}" \
+            --evalset eval_data/seed_evalset.jsonl \
+            --out reports/refresh_eval
+          python scripts/check_eval_regression.py \
+            --metrics reports/refresh_eval.json \
+            --baseline eval_data/retrieval_baseline.json
+
+      - name: Publish refreshed corpus + embeddings to the Hub
+        if: steps.build.outputs.new_chunks != '0'
+        run: |
+          python scripts/push_corpus_to_hub.py \
+            --parquet "${{ steps.build.outputs.corpus_path }}" \
+            --repo-id "${CORPUS_REPO}"
+          python scripts/push_embeddings_to_hub.py \
+            --embeddings "${{ steps.build.outputs.embeddings_path }}" \
+            --repo-id "${CORPUS_REPO}"
+
+      - name: Redeploy the Space with the refreshed corpus
+        if: steps.build.outputs.new_chunks != '0'
+        run: python scripts/redeploy_space.py --space-id "${SPACE_ID}"
+
+      - name: Report a blocked or failed refresh
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Weekly corpus refresh failed (${new Date().toISOString().slice(0, 10)})`,
+              labels: ["automation", "ingestion"],
+              body: [
+                "The scheduled corpus refresh did not complete.",
+                "",
+                "Most likely cause: the eval-gate found a retrieval regression on the",
+                "refreshed corpus and blocked publishing (the live demo was left",
+                "untouched). It could also be a crawl or Hub error — check the run.",
+                "",
+                `**Run:** ${run}`,
+              ].join("\n"),
+            });
