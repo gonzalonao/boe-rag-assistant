@@ -227,3 +227,38 @@ Arc 4 (you crawl + I wire baseline/docs)  ─►  Arc 5 (I build, you run local 
 ```
 
 Arc 4 unblocks both 5 and 6. Do 4 first; 5 and 6 can then proceed in parallel.
+
+---
+
+## Phase 7 — Scheduled incremental ingestion (DONE — guarded auto)
+
+**Why:** Arc 4 was a one-off crawl. Phase 7 keeps the corpus *current* — new BOE legislation
+becomes answerable within a week — without re-crawling or re-embedding the decade already on the
+Hub, and **without ever shipping a crawl that regresses retrieval**.
+
+**What runs (weekly, unattended):**
+[`.github/workflows/refresh-corpus.yml`](../.github/workflows/refresh-corpus.yml) on a Monday cron
+(also `workflow_dispatch`):
+
+1. **Build** — [`scripts/refresh_corpus.py`](../scripts/refresh_corpus.py) fetches the published
+   corpus + embeddings, crawls a trailing 10-day window (overlap is free — dedup by stable
+   `chunk_id`), folds in only new chunks ([`ingest/incremental.py`](../src/boe_rag/ingest/incremental.py)),
+   and embeds *only* those, realigning the matrix to the corpus order. No new chunks ⇒ stop.
+2. **Gate** — [`run_eval.py`](../scripts/run_eval.py) scores the refreshed corpus (loading the new
+   `.npz`, query-encoding live) and [`check_eval_regression.py`](../scripts/check_eval_regression.py)
+   compares it to [`eval_data/retrieval_baseline.json`](../eval_data/retrieval_baseline.json).
+3. **Ship (only if the gate clears)** — `push_corpus_to_hub.py` + `push_embeddings_to_hub.py`
+   overwrite the canonical artifacts in place, then [`redeploy_space.py`](../scripts/redeploy_space.py)
+   factory-reboots the Space (the Dockerfile re-fetches the corpus at build time, so a rebuild is
+   what makes the new data live). A regression blocks the publish and opens a GitHub issue instead.
+
+**Setup (one-time):** the `HF_TOKEN` repo secret already exists (used by `deploy-space.yml`); the
+schedule activates once the workflow is on `main`. Trigger a manual run with **Actions → Weekly
+corpus refresh → Run workflow** (optionally set the window width).
+
+**Design choices:** *guarded* auto (gate before publish) over full auto, so an unattended bad crawl
+can't degrade the live demo; a stateless trailing window (no last-run cursor — dedup makes overlap
+idempotent); CPU embedding of the small weekly delta runs comfortably inside the Action.
+
+**Definition of done:** weekly workflow green end to end, the dataset growing over time, and the
+live Space answering questions about legislation published since the last manual release.

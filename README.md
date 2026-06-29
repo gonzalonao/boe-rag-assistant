@@ -150,8 +150,9 @@ python scripts/push_corpus_to_hub.py \
 - [ ] **Phase 5** — Grounded generation with citation validation
 - [x] **Phase 6** — Serving: FastAPI service (`/ask`, `/search`, `/health`) + a custom React/Vite
   chat UI (linked citations) deployed on GitHub Pages + containerised Hugging Face Space deployment
-- [ ] **Phase 7** — Scheduled incremental ingestion + observability (Langfuse tracing
-  wired via the `Tracer` seam; scheduled ingestion pending)
+- [x] **Phase 7** — Scheduled incremental ingestion: a weekly GitHub Action crawls the latest
+  BOE issues, embeds only the new chunks, and republishes + redeploys **behind the eval-gate**
+  (observability: Langfuse tracing wired via the `Tracer` seam)
 
 ## Evaluation (Phase 2)
 
@@ -465,6 +466,26 @@ docker build -t boe-rag .
 docker run --rm -p 7860:7860 -e OPENROUTER_API_KEY="..." boe-rag
 # → http://localhost:7860/docs   (JSON API; GET / redirects to the deployed UI)
 ```
+
+## Staying current (Phase 7)
+
+The corpus is not a one-off snapshot — a **weekly GitHub Action**
+([`.github/workflows/refresh-corpus.yml`](.github/workflows/refresh-corpus.yml)) keeps it
+current, **guarded by the same eval-gate that protects every other change**:
+
+1. **Crawl the delta.** [`scripts/refresh_corpus.py`](scripts/refresh_corpus.py) fetches the
+   published corpus + embeddings from the Hub and crawls a short trailing window of new BOE
+   issues. New chunks are folded in by stable `chunk_id` ([`ingest/incremental.py`](src/boe_rag/ingest/incremental.py)),
+   so the decade already on the Hub is never re-crawled. If nothing is new, the run stops.
+2. **Embed only what's new.** Just the new passages are encoded; existing vectors are reused and
+   the matrix is realigned to the corpus order — so a weekly run is seconds of CPU, not a full
+   re-embed.
+3. **Gate before shipping.** The refreshed corpus is scored with [`run_eval.py`](scripts/run_eval.py)
+   and checked against the committed baseline. **Only if retrieval clears the floor** does the job
+   republish the corpus + embeddings and factory-reboot the Space
+   ([`scripts/redeploy_space.py`](scripts/redeploy_space.py)) so new legislation is answerable
+   within a week. A regression blocks the publish and opens an issue instead — the live demo is
+   never degraded by an unattended crawl.
 
 ## Observability (Phase 6)
 
