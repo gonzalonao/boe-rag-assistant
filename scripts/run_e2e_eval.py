@@ -69,16 +69,21 @@ def _render_report(
         f"| Mean faithfulness | {metrics.mean_faithfulness:.3f} |",
         f"| Mean correctness | {metrics.mean_correctness:.3f} |",
         f"| Refusal rate | {metrics.refusal_rate:.3f} |",
+        f"| Uncited-answer rate | {metrics.uncited_answer_rate:.3f} |",
+        "",
+        "Uncited-answer rate is the cite-or-refuse guardrail's false-positive surface:",
+        "the share of *answered* questions whose answer carried no valid citation and",
+        "would therefore be converted to a refusal at serving time.",
         "",
         "## Per-question",
         "",
-        "| Example | Faithful | Correct | Refused |",
-        "|---|---|---|---|",
+        "| Example | Faithful | Correct | Refused | Cited |",
+        "|---|---|---|---|---|",
     ]
     for r in results:
         lines.append(
             f"| {r.example_id} | {r.faithfulness:.2f} | {r.correctness:.2f} | "
-            f"{'yes' if r.refused else 'no'} |"
+            f"{'yes' if r.refused else 'no'} | {'yes' if r.cited else 'no'} |"
         )
     lines.append("")
     return "\n".join(lines)

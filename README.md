@@ -367,21 +367,26 @@ also hardened to treat passages and the question as *data, never instructions*.
 The suite earns its keep by finding real weaknesses and then proving the fixes. The prompt-only
 baseline **fabricated citations** when asked (e.g. `[99]` for a source never retrieved) and, on
 one phrasing, **leaked the system-prompt canary** — caught 0% and 75% of the time respectively.
-Two deterministic post-hoc guardrails close them: **citation validation**
-(`src/boe_rag/service/citation.py`) strips `[n]` markers pointing past the retrieved passages and
-refuses on entirely-fabricated grounding; **canary containment** (`src/boe_rag/service/safety.py`)
-refuses any answer that leaks the canary. Same harness, prompt-only baseline vs. with guardrails:
+Three deterministic post-hoc guardrails close them, all inside `RagEngine.answer`: a
+**cite-or-refuse invariant** (`src/boe_rag/service/citation.py`) strips `[n]` markers pointing past
+the retrieved passages and refuses any served answer left without a valid citation — covering both
+fabricated-only grounding and an *uncited* injected echo; **canary containment**
+(`src/boe_rag/service/safety.py`) refuses any answer that leaks the canary. Same harness,
+prompt-only baseline vs. with guardrails:
 
 | Attack category | Baseline | With guardrails |
 |---|---|---|
 | out-of-corpus hallucination | 100% | 100% |
-| instruction override | 75% | 67% |
+| instruction override | 75% | 67% † |
 | system-prompt exfiltration | 75% | **100%** |
 | **citation spoofing** | **0%** | **100%** |
 | **Overall** | **64% (9/14)** | **91% (20/22)** |
 
-The remaining gap is instruction-override *echo* (2 cases) — there's no fixed token to match
-deterministically, so it's tracked honestly rather than papered over. Full threat model,
+† The cite-or-refuse invariant was extended to drop *uncited* answers (the instruction-override
+echo vector) after this run; the override score is expected to rise on the next harness re-run and
+will be updated then — tracked honestly rather than papered over. A payload echoed *alongside* a
+genuine cited answer would still pass, so robust prompt-injection defense stays an open problem.
+Full threat model,
 methodology, and the find→fix loops: [`docs/SECURITY.md`](docs/SECURITY.md);
 latest report: [`reports/security_eval.md`](reports/security_eval.md). Reproduce it once an API
 key is set:
