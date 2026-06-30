@@ -418,7 +418,16 @@ TypeScript in `strict` mode, Biome) that consumes the JSON API cross-origin — 
 separation between the Python service and the web client. It is deployed independently to
 **GitHub Pages** ([`.github/workflows/deploy-frontend.yml`](.github/workflows/deploy-frontend.yml));
 the API root (`/`) redirects browsers to it (`BOE_FRONTEND_URL`), so the Space URL still lands
-on the live UI. Ask a question, get a grounded answer with each source linked back to boe.es.
+on the live UI. Two views:
+
+- **Asistente** — *Preguntar* gives a grounded answer with each source linked back to boe.es
+  (`/ask`); *Buscar pasajes* shows the raw ranked retrieval with relevance scores (`/search`).
+- **Calidad** (`#/calidad`) — a metrics page that renders the headline eval numbers straight
+  from the committed `reports/*.json`: gold/silver retrieval (recall@10, MRR, nDCG with
+  bootstrap CIs), the dense → hybrid → +cross-encoder ablation, LLM-judged answer quality, and
+  the adversarial security posture by category. The data is assembled at build time by
+  [`frontend/scripts/build-quality-data.mjs`](frontend/scripts/build-quality-data.mjs), so the
+  page can never drift from the evals it reports.
 
 ```bash
 # Terminal 1 — the API (CORS open for the dev server origin):
@@ -433,7 +442,7 @@ cd frontend
 npm install
 # point the SPA at the local API (frontend/.env): VITE_API_BASE_URL=http://localhost:8000
 npm run dev
-# → http://localhost:5173/        (chat UI)
+# → http://localhost:5173/        (assistant + #/calidad quality page)
 ```
 
 ## Deployment (Phase 6)

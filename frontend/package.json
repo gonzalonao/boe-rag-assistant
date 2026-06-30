@@ -5,9 +5,13 @@
   "type": "module",
   "description": "Custom React frontend for the BOE RAG Assistant — grounded, cited answers about Spanish legislation.",
   "scripts": {
+    "quality:data": "node scripts/build-quality-data.mjs",
+    "predev": "node scripts/build-quality-data.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/build-quality-data.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "pretypecheck": "node scripts/build-quality-data.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome format --write ."
