@@ -1,6 +1,10 @@
 node_modules/
 dist/
 *.local
+
+# Generated from ../reports by scripts/build-quality-data.mjs (prebuild/predev/
+# pretypecheck hooks). Regenerated on every build, so it is never committed.
+src/quality-data.json
 .env
 .env.*.local
 .DS_Store

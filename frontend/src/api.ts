@@ -1,4 +1,4 @@
-import type { AnswerResponse } from "./types";
+import type { AnswerResponse, SearchResponse } from "./types";
 
 // Base URL of the JSON API. Injected at build time (VITE_API_BASE_URL = the
 // deployed HF Space); empty string means same-origin (useful for local proxying).
@@ -12,20 +12,14 @@ const MESSAGES: Record<number, string> = {
   503: "El servicio de generación no está disponible ahora mismo. Vuelve a intentarlo en un momento.",
 };
 
-/**
- * Ask the assistant a question and get a grounded, cited answer.
- *
- * @param question Natural-language question about Spanish legislation.
- * @param k Number of passages to ground the answer in (1–20).
- * @throws ApiError with a user-facing message on a non-2xx response or network failure.
- */
-export async function ask(question: string, k = 5): Promise<AnswerResponse> {
+/** POST a JSON body to an API endpoint, mapping failures to a typed ApiError. */
+async function postJson<T>(path: string, body: unknown): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}/ask`, {
+    response = await fetch(`${API_BASE}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, k }),
+      body: JSON.stringify(body),
     });
   } catch {
     throw new ApiError(
@@ -37,5 +31,27 @@ export async function ask(question: string, k = 5): Promise<AnswerResponse> {
       MESSAGES[response.status] ?? `Error inesperado (${response.status}).`,
     );
   }
-  return (await response.json()) as AnswerResponse;
+  return (await response.json()) as T;
+}
+
+/**
+ * Ask the assistant a question and get a grounded, cited answer.
+ *
+ * @param question Natural-language question about Spanish legislation.
+ * @param k Number of passages to ground the answer in (1–20).
+ * @throws ApiError with a user-facing message on a non-2xx response or network failure.
+ */
+export function ask(question: string, k = 5): Promise<AnswerResponse> {
+  return postJson<AnswerResponse>("/ask", { question, k });
+}
+
+/**
+ * Retrieve the raw passages ranked for a query, without generating an answer.
+ *
+ * @param query The search query about Spanish legislation.
+ * @param k Number of passages to return (1–20).
+ * @throws ApiError with a user-facing message on a non-2xx response or network failure.
+ */
+export function search(query: string, k = 10): Promise<SearchResponse> {
+  return postJson<SearchResponse>("/search", { query, k });
 }
