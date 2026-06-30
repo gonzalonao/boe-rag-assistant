@@ -3,6 +3,9 @@ import { type FormEvent, useState } from "react";
 interface AskFormProps {
   onAsk: (question: string) => void;
   loading: boolean;
+  placeholder?: string;
+  label?: string;
+  loadingLabel?: string;
 }
 
 const EXAMPLES = [
@@ -11,8 +14,18 @@ const EXAMPLES = [
   "¿Qué regula la Ley 39/2015?",
 ];
 
-/** The question input with a submit button and a few example prompts. */
-export function AskForm({ onAsk, loading }: AskFormProps) {
+/** The query input with a submit button and a few example prompts.
+ *
+ * The button/placeholder copy is configurable so the same form serves both the
+ * "ask" (grounded answer) and "search" (raw retrieval) modes.
+ */
+export function AskForm({
+  onAsk,
+  loading,
+  placeholder = "Pregunta sobre legislación española…",
+  label = "Preguntar",
+  loadingLabel = "Consultando…",
+}: AskFormProps) {
   const [value, setValue] = useState("");
 
   function submit(event: FormEvent) {
@@ -31,8 +44,8 @@ export function AskForm({ onAsk, loading }: AskFormProps) {
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="Pregunta sobre legislación española…"
-          aria-label="Pregunta sobre legislación española"
+          placeholder={placeholder}
+          aria-label={placeholder}
           maxLength={1000}
           disabled={loading}
         />
@@ -41,7 +54,7 @@ export function AskForm({ onAsk, loading }: AskFormProps) {
           type="submit"
           disabled={loading || !value.trim()}
         >
-          {loading ? "Consultando…" : "Preguntar"}
+          {loading ? loadingLabel : label}
         </button>
       </div>
       <div className="examples">
