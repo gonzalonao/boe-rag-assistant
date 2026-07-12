@@ -190,8 +190,9 @@ variance so smaller real gains are detectable.
 
 ```bash
 $env:OPENROUTER_API_KEY = "..."   # preferred: ~1000 free calls/day on `:free` models
-# Optional: a comma-separated fallback chain (OpenRouter routes around a busy model):
-$env:OPENROUTER_MODEL = "qwen/qwen3-next-80b-a3b-instruct:free,openai/gpt-oss-120b:free"
+# Optional: a comma-separated fallback chain (OpenRouter routes around a busy model);
+# the default ends in `openrouter/free`, OpenRouter's auto-router over live free models:
+$env:OPENROUTER_MODEL = "google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/free"
 python scripts/generate_evalset.py --corpus data/corpus/boe-2024.parquet \
     --out eval_data/generated_evalset.jsonl --limit 150
 ```

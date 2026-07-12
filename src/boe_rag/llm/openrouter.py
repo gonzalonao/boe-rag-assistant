@@ -30,13 +30,14 @@ _MAX_MODELS = 3
 
 #: Default free model chain, tried in order via OpenRouter's ``models`` fallback
 #: routing so a single congested free endpoint ("rate-limited upstream") does not
-#: fail the request. Free slugs change often; override with ``OPENROUTER_MODEL``
-#: (comma-separated for a chain) and browse the live free catalogue at
-#: https://openrouter.ai/models?max_price=0.
+#: fail the request. Two strong, general-purpose free models lead, and the final
+#: entry is OpenRouter's **free-models router** (``openrouter/free``): rather than a
+#: fixed model, it auto-selects an available free model matching the request's needs,
+#: so the chain keeps answering even after both named slugs rotate out. Free slugs
+#: change often; override with ``OPENROUTER_MODEL`` (comma-separated for a chain) and
+#: browse the live free catalogue at https://openrouter.ai/models?max_price=0.
 DEFAULT_OPENROUTER_MODEL = (
-    "qwen/qwen3-next-80b-a3b-instruct:free,"
-    "openai/gpt-oss-120b:free,"
-    "nvidia/nemotron-3-super-120b-a12b:free"
+    "google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/free"
 )
 
 #: Sent as OpenRouter's optional ranking headers; harmless and identifies the app.
