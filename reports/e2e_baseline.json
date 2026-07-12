@@ -1,6 +1,7 @@
 {
   "num_queries": 20,
-  "mean_faithfulness": 0.99,
-  "mean_correctness": 0.8949999999999999,
-  "refusal_rate": 0.05
+  "mean_faithfulness": 0.9800000000000001,
+  "mean_correctness": 0.905,
+  "refusal_rate": 0.05,
+  "uncited_answer_rate": 0.0
 }
