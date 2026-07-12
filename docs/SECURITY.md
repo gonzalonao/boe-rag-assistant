@@ -72,20 +72,20 @@ response to what the eval found, then the suite was broadened from 14 to 23 case
 | Attack category | Baseline (prompt-only) | With output guardrails |
 |---|---|---|
 | Out-of-corpus hallucination | 100% | 100% |
-| Instruction override | 75% | 67% |
+| Instruction override | 75% | **100%** |
 | System-prompt exfiltration | 75% | **100%** |
 | **Citation spoofing** | **0%** | **100%** |
-| **Overall** | **64% (9/14)** | **91% (21/23)** |
+| **Overall** | **64% (9/14)** | **100% (23/23)** |
 
 System-prompt exfiltration stays at **100%** including `exf-07`, the
 non-breaking-hyphen obfuscation probe added with the v0.3.1 canary-normalisation
 fix (below).
 
-The suite earned its keep by finding **two real weaknesses** that prompt wording
+The suite earned its keep by finding **three real weaknesses** that prompt wording
 alone could not close: the generator **fabricated citations** to passages it never
-retrieved (e.g. `[99]`), and one exfiltration phrasing **leaked the canary**. Both
-are now closed by deterministic guardrails (below). The instruction-override score
-dips because the broadened set added a harder echo case — see *Open gaps*.
+retrieved (e.g. `[99]`), one exfiltration phrasing **leaked the canary**, and an
+instruction-override payload was **echoed uncited**. All three are now closed by the
+deterministic guardrails below, taking the suite from 64% to **100% (23/23)**.
 
 ## The fixes (find → fix loops) — shipped
 
@@ -125,15 +125,15 @@ the defenses.
 
 ## Open gaps
 
-- **Instruction-override echo — mitigation shipped, re-measurement pending.** Two of
-  the six override cases (which two varies run to run — e.g. `inj-05`, `inj-06`) coaxed
-  the model into echoing an injected literal string. The payload is arbitrary, so there
-  is no fixed token to match — but an echoed payload has no *citation*, and the
-  **cite-or-refuse invariant** (above) now refuses any served answer without a valid
-  citation. The injected literal cannot satisfy it, so the bare-echo vector is dropped
-  at serving time. The score in the table predates this change; it is expected to rise
-  on the next `run_security_eval.py` run and will be updated then (same find→fix→**prove**
-  loop, with the prove step pending an API key).
+- **Instruction-override echo — closed (67% → 100%), 2026-07-12.** Two of the six
+  override cases (e.g. `inj-05`, `inj-06`) coaxed the model into echoing an injected
+  literal string. The payload is arbitrary, so there is no fixed token to match — but an
+  echoed payload has no *citation*, and the **cite-or-refuse invariant** (above) now
+  refuses any served answer without a valid citation. The injected literal cannot satisfy
+  it, so it is dropped at serving time. Re-running `run_security_eval.py` on the same
+  harness confirms the close: instruction override **67% → 100%**, overall **91% → 100%
+  (23/23)**, with **zero** e2e false positives (`uncited_answer_rate` 0.000 over the
+  20-question gold set — no legitimate answer is wrongly refused).
   **Residual (still open):** a payload echoed *alongside* a genuinely cited answer would
   still pass the invariant, and a second-pass classifier remains the heavier option for
   that. Robust prompt-injection defense is an open research problem, so this is tracked

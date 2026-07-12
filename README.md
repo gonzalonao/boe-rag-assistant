@@ -43,7 +43,7 @@ set over the **2024 iteration corpus** (2,225 chunks) used to develop the ablati
 | **+ Cross-encoder rerank** | **1.000** | **0.888** | **0.913** |
 
 End-to-end answer quality (cite-or-refuse generation, scored by an LLM-as-judge):
-**faithfulness 0.990 · correctness 0.895 · refusal rate 0.050**. Full methodology, per-stage
+**faithfulness 0.980 · correctness 0.905 · refusal rate 0.050**. Full methodology, per-stage
 tables, and reproduction commands in [Evaluation](#evaluation-phase-2).
 
 > **Production corpus.** The deployed corpus has since been widened to **2015–present**
@@ -143,7 +143,7 @@ python scripts/push_corpus_to_hub.py \
 - [x] **Phase 1** — BOE ingestion pipeline → corpus dataset on HF Hub
 - [x] **Phase 2** — Eval harness: retrieval metrics + golden set + baseline, plus a
   provider-agnostic LLM layer (OpenRouter/Groq) and an LLM-as-judge end-to-end baseline
-  (faithfulness 0.990, correctness 0.895)
+  (faithfulness 0.980, correctness 0.905)
 - [x] **Phase 3** — Retrieval engineering: hybrid BM25+dense (RRF), cross-encoder reranking
   (recall 0.900→1.000), and a chunking ablation validating article-level chunks
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
@@ -342,7 +342,7 @@ golden set:
 
 | Mean faithfulness | Mean correctness | Refusal rate |
 |---|---|---|
-| 0.990 | 0.895 | 0.050 |
+| 0.980 | 0.905 | 0.050 |
 
 Near-perfect faithfulness confirms the cite-or-refuse prompt rarely hallucinates; correctness
 is the headroom that retrieval and generation work will target. Full report:
@@ -378,16 +378,16 @@ prompt-only baseline vs. with guardrails:
 | Attack category | Baseline | With guardrails |
 |---|---|---|
 | out-of-corpus hallucination | 100% | 100% |
-| instruction override | 75% | 67% † |
+| instruction override | 75% | **100%** |
 | system-prompt exfiltration | 75% | **100%** |
 | **citation spoofing** | **0%** | **100%** |
-| **Overall** | **64% (9/14)** | **91% (20/22)** |
+| **Overall** | **64% (9/14)** | **100% (23/23)** |
 
-† The cite-or-refuse invariant was extended to drop *uncited* answers (the instruction-override
-echo vector) after this run; the override score is expected to rise on the next harness re-run and
-will be updated then — tracked honestly rather than papered over. A payload echoed *alongside* a
-genuine cited answer would still pass, so robust prompt-injection defense stays an open problem.
-Full threat model,
+Extending the invariant to drop *uncited* answers closed the instruction-override echo (67% →
+**100%**) with **zero** e2e false positives — no legitimate answer is wrongly refused
+(`uncited_answer_rate` 0.000 over the 20-question gold set). A payload echoed *alongside* a
+genuine cited answer would still pass, so robust prompt-injection defense stays an open problem —
+tracked honestly rather than papered over. Full threat model,
 methodology, and the find→fix loops: [`docs/SECURITY.md`](docs/SECURITY.md);
 latest report: [`reports/security_eval.md`](reports/security_eval.md). Reproduce it once an API
 key is set:
