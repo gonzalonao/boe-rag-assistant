@@ -43,9 +43,6 @@ _ALL_ENV_VARS = (
     "OPENROUTER_MODEL",
     "GROQ_API_KEY",
     "GROQ_MODEL",
-    "GEMINI_API_KEY",
-    "GEMINI_MODEL",
-    "GOOGLE_API_KEY",
     "LANGFUSE_PUBLIC_KEY",
     "LANGFUSE_SECRET_KEY",
     "LANGFUSE_HOST",
@@ -79,15 +76,6 @@ def test_environment_wins_over_env_file(
     assert _settings(env_file=env_file).groq_api_key == "from-env"
 
 
-def test_gemini_accepts_google_api_key_alias(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """GOOGLE_API_KEY populates the gemini credential as an alias."""
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.setenv("GOOGLE_API_KEY", "g-key")
-    assert _settings(env_file=None).gemini_api_key == "g-key"
-
-
 def test_path_fields_are_parsed_as_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -103,11 +91,10 @@ def test_as_env_uses_canonical_names(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """as_env keys values by their canonical environment-variable name."""
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.setenv("GEMINI_API_KEY", "g")
+    monkeypatch.setenv("GROQ_API_KEY", "g")
     monkeypatch.setenv("BOE_REPORTS_DIR", "reports")
     exported = _settings(env_file=None).as_env()
-    assert exported["GEMINI_API_KEY"] == "g"
+    assert exported["GROQ_API_KEY"] == "g"
     assert exported["BOE_REPORTS_DIR"] == "reports"
 
 

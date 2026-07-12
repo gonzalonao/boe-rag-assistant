@@ -6,8 +6,8 @@ keeps only answers the LLM-judge rates faithful to their source chunk. The resul
 is written as JSONL in the same schema as the hand-curated seed set.
 
 The ``ml`` extra is *not* needed, but at least one LLM API key must be set
-(``GROQ_API_KEY`` recommended; ``GEMINI_API_KEY``/``GOOGLE_API_KEY`` also work).
-Groq is the reliable free option — Gemini's free tier rate-limits hard.
+(``GROQ_API_KEY`` recommended; ``OPENROUTER_API_KEY`` also works). Groq is the
+reliable free option for this long job.
 
 This is a long job against free-tier limits, so it is built to survive them and to
 *resume*: on a rate limit it waits for the provider's cool-down and retries, and it
@@ -183,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     if not providers:
         logger.error(
             "No LLM provider configured. Set GROQ_API_KEY (recommended) "
-            "and/or GEMINI_API_KEY/GOOGLE_API_KEY."
+            "and/or OPENROUTER_API_KEY."
         )
         return 1
     provider = FallbackProvider(providers)
