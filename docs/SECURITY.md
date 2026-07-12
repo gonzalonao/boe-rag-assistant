@@ -43,7 +43,7 @@ text.
   ([`reports/security_eval.md`](../reports/security_eval.md)).
 
 ```bash
-$env:OPENROUTER_API_KEY = "..."   # or GROQ_API_KEY / GEMINI_API_KEY
+$env:OPENROUTER_API_KEY = "..."   # or GROQ_API_KEY
 python scripts/run_security_eval.py --corpus data/corpus/boe-2024.parquet \
     --out reports/security_eval
 ```

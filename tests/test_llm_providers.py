@@ -9,55 +9,13 @@ import pytest
 
 from boe_rag.llm.base import ChatMessage, LLMError, LLMRateLimitError
 from boe_rag.llm.factory import FallbackProvider, build_available_providers
-from boe_rag.llm.gemini import GeminiProvider
 from boe_rag.llm.groq import GroqProvider
 from boe_rag.llm.openrouter import OpenRouterProvider
 
 
-def _mock(
-    provider: GeminiProvider | GroqProvider | OpenRouterProvider, handler: object
-) -> None:
+def _mock(provider: GroqProvider | OpenRouterProvider, handler: object) -> None:
     """Swap a provider's HTTP client for one driven by a mock handler."""
     provider._client = httpx.Client(transport=httpx.MockTransport(handler))  # type: ignore[arg-type]
-
-
-def test_gemini_parses_completion() -> None:
-    """GeminiProvider extracts text from a generateContent response."""
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers["x-goog-api-key"] == "k"
-        return httpx.Response(
-            200,
-            json={"candidates": [{"content": {"parts": [{"text": "Hola mundo"}]}}]},
-        )
-
-    provider = GeminiProvider(api_key="k")
-    _mock(provider, handler)
-    out = provider.complete([ChatMessage(role="user", content="hi")])
-    assert out == "Hola mundo"
-
-
-def test_gemini_sends_system_instruction() -> None:
-    """A system message is mapped to Gemini's systemInstruction field."""
-    seen: dict[str, object] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        import json
-
-        seen.update(json.loads(request.content))
-        return httpx.Response(
-            200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}
-        )
-
-    provider = GeminiProvider(api_key="k")
-    _mock(provider, handler)
-    provider.complete(
-        [
-            ChatMessage(role="system", content="Eres un juez."),
-            ChatMessage(role="user", content="evalúa"),
-        ]
-    )
-    assert "systemInstruction" in seen
 
 
 def test_groq_parses_completion() -> None:
@@ -324,8 +282,6 @@ def test_build_available_providers_skips_missing_keys(
 ) -> None:
     """Only providers with a configured key are constructed, in preference order."""
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setenv("GROQ_API_KEY", "k")
     providers = build_available_providers()
     assert [p.name.split(":")[0] for p in providers] == ["groq"]
@@ -336,7 +292,6 @@ def test_build_available_providers_prefers_openrouter(
 ) -> None:
     """With all keys present, OpenRouter leads the fallback chain."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
     monkeypatch.setenv("GROQ_API_KEY", "k")
     providers = build_available_providers()
-    assert [p.name.split(":")[0] for p in providers] == ["openrouter", "gemini", "groq"]
+    assert [p.name.split(":")[0] for p in providers] == ["openrouter", "groq"]

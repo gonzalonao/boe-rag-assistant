@@ -6,7 +6,7 @@ with deterministic, rule-based checks (see ``boe_rag.eval.security``). Exercises
 the generation guardrails, which is where these attacks land.
 
 Requires the ``ml`` extra (``pip install -e .[ml]``) and at least one LLM API key
-in the environment (``OPENROUTER_API_KEY`` / ``GROQ_API_KEY`` / ``GEMINI_API_KEY``).
+in the environment (``OPENROUTER_API_KEY`` / ``GROQ_API_KEY``).
 
 Example:
     python scripts/run_security_eval.py --corpus data/corpus/boe-2024.parquet \
@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     if not providers:
         logger.error(
             "No LLM provider configured. Set OPENROUTER_API_KEY (recommended) "
-            "and/or GROQ_API_KEY, GEMINI_API_KEY."
+            "and/or GROQ_API_KEY."
         )
         return 1
 

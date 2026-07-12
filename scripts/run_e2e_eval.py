@@ -1,8 +1,7 @@
 """Run the end-to-end RAG evaluation (retrieve → generate → judge).
 
 Requires the ``ml`` extra (``pip install -e .[ml]``) and at least one LLM API
-key in the environment (``GEMINI_API_KEY``/``GOOGLE_API_KEY`` and/or
-``GROQ_API_KEY``).
+key in the environment (``OPENROUTER_API_KEY`` and/or ``GROQ_API_KEY``).
 
 Example:
     python scripts/run_e2e_eval.py --corpus data/corpus/boe-2024.parquet \
@@ -123,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     providers = build_available_providers()
     if not providers:
         logger.error(
-            "No LLM provider configured. Set GEMINI_API_KEY/GOOGLE_API_KEY "
+            "No LLM provider configured. Set OPENROUTER_API_KEY (recommended) "
             "and/or GROQ_API_KEY."
         )
         return 1

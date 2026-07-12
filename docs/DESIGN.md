@@ -128,7 +128,7 @@ The contract every change is held to (`src/boe_rag/eval/`):
   `/ask` + `/search`; graceful degradation — when the LLM tier is rate-limited, `/ask` returns
   the retrieved passages instead of failing, and `/search` never needed an LLM.
 - **Provider layer (`llm/`).** Vendor-agnostic `LLMProvider` protocol; a `FallbackProvider`
-  chains OpenRouter → Groq → Gemini with a **time-based circuit breaker** that skips a
+  chains OpenRouter → Groq with a **time-based circuit breaker** that skips a
   rate-limited provider for a cool-down and raises a *distinct* error when all are cooling down,
   so bulk callers can back off rather than die.
 - **Cheap cold start.** The Docker image bakes in CPU-only PyTorch, the corpus, **precomputed E5
