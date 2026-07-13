@@ -11,6 +11,9 @@ on:
     branches: [main]
     paths:
       - "frontend/**"
+      # The quality page bakes reports/*.json in at build time, so a metrics
+      # update must rebuild the site or the page serves stale numbers.
+      - "reports/**"
       - ".github/workflows/deploy-frontend.yml"
   workflow_dispatch:
 
