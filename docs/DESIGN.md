@@ -101,8 +101,8 @@ The contract every change is held to (`src/boe_rag/eval/`):
   and **correctness** (0–1, `temperature=0`), plus refusal rate.
 - **Measured results.** On the 2024 iteration corpus (2,225 chunks), dense → +hybrid → +rerank
   lifts recall@10 0.900 → **1.000** and MRR 0.749 → **0.888**; article chunking beats fixed-size
-  by **+0.063 MRR** while uniquely keeping exact citations. E2E baseline: faithfulness **0.990**,
-  correctness **0.895**. On the production **2015–present** corpus (25,419 chunks) the dense
+  by **+0.063 MRR** while uniquely keeping exact citations. E2E baseline: faithfulness **0.980**,
+  correctness **0.905**. On the production **2015–present** corpus (25,419 chunks) the dense
   baseline is **recall@10 0.90 · MRR 0.691** (equivalence-aware scoring, below) — the saturation
   ceiling removed; re-running the full ablation there is a tracked follow-up.
 - **Uncertainty, quantified.** `eval/stats.py` reports a 95% bootstrap CI for recall@k and MRR
@@ -128,7 +128,7 @@ The contract every change is held to (`src/boe_rag/eval/`):
   `/ask` + `/search`; graceful degradation — when the LLM tier is rate-limited, `/ask` returns
   the retrieved passages instead of failing, and `/search` never needed an LLM.
 - **Provider layer (`llm/`).** Vendor-agnostic `LLMProvider` protocol; a `FallbackProvider`
-  chains OpenRouter → Groq → Gemini with a **time-based circuit breaker** that skips a
+  chains OpenRouter → Groq with a **time-based circuit breaker** that skips a
   rate-limited provider for a cool-down and raises a *distinct* error when all are cooling down,
   so bulk callers can back off rather than die.
 - **Cheap cold start.** The Docker image bakes in CPU-only PyTorch, the corpus, **precomputed E5

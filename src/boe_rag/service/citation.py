@@ -3,14 +3,26 @@
 The cite-or-refuse system prompt cannot *guarantee* citation integrity: the
 adversarial security eval (``boe_rag.eval.security``) found that, when goaded, the
 generator will cite passages it was never given — e.g. ``[99]`` against a five-source
-context. Prompt-level defenses caught it 0% of the time.
+context, or echo an injected literal with no citation at all. Prompt-level defenses
+caught the fabrication 0% of the time.
 
-This module is the deterministic guardrail that runs *after* generation. A citation
-index is valid only when it falls in ``1..num_sources`` (it points at a passage
-actually supplied to the generator). Fabricated markers are stripped from the text,
-and if an answer's grounding rested *entirely* on fabricated citations it is replaced
-by the refusal string — an answer that cites only sources it never saw has no real
-grounding to stand on.
+This module is the deterministic guardrail that runs *after* generation, enforcing a
+single **cite-or-refuse** invariant on the output: a served answer must carry at least
+one *valid* citation, otherwise it is replaced by the refusal string. A citation index
+is valid only when it falls in ``1..num_sources`` (it points at a passage actually
+supplied to the generator).
+
+Two failure modes collapse to a refusal under this rule:
+
+- **Fabricated grounding** — the answer cites only indices it was never given
+  (``[99]``); the markers are meaningless, so the answer has nothing to stand on.
+- **Uncited output** — the answer carries no ``[n]`` at all. The generator is
+  instructed to cite every claim, so an uncited non-refusal is either a malfunction or
+  an injected echo (e.g. an instruction-override payload), which by construction never
+  carries a real citation.
+
+When an answer *does* carry a valid citation, any *additional* fabricated markers are
+stripped and the answer is served — a partially-grounded answer keeps its grounding.
 """
 
 from __future__ import annotations
@@ -33,11 +45,15 @@ class CitationValidation:
         refused: Whether the answer was rejected for lacking any valid grounding.
         invalid_citations: The fabricated indices that were stripped, in order of
             appearance (with repeats).
+        uncited: Whether the answer carried no ``[n]`` citation at all. ``True`` only
+            on the refusal path, where it distinguishes an uncited echo from an
+            answer whose every citation was fabricated (for tracing/triage).
     """
 
     answer: str
     refused: bool
     invalid_citations: tuple[int, ...]
+    uncited: bool = False
 
 
 def cited_indices(answer: str) -> list[int]:
@@ -48,12 +64,14 @@ def cited_indices(answer: str) -> list[int]:
 def validate_citations(
     answer: str, num_sources: int, *, refusal: str
 ) -> CitationValidation:
-    """Strip fabricated ``[n]`` citations, refusing when none remain valid.
+    """Enforce cite-or-refuse: a served answer must carry a valid citation.
 
-    An index is valid only inside ``1..num_sources``. Any other index (zero,
-    negative, or past the last retrieved passage) is a fabrication: its marker is
-    removed from the text. If the answer cited sources but *every* citation was
-    fabricated, the answer has no genuine grounding and is replaced by ``refusal``.
+    An index is valid only inside ``1..num_sources``; any other index (zero,
+    negative, or past the last retrieved passage) is a fabrication. The answer is
+    served **iff** it cites at least one valid index, in which case any fabricated
+    markers are stripped from the text. Otherwise — whether it cited only fabricated
+    sources or cited nothing at all — it has no grounding in the retrieved passages
+    and is replaced by ``refusal``.
 
     Args:
         answer: The generated answer text.
@@ -61,20 +79,24 @@ def validate_citations(
         refusal: The exact refusal string to emit when grounding collapses.
 
     Returns:
-        The validated answer, whether it was refused, and the stripped indices.
+        The validated answer, whether it was refused, the stripped indices, and
+        whether the refusal was triggered by an uncited answer.
     """
     indices = cited_indices(answer)
     invalid = tuple(i for i in indices if i < 1 or i > num_sources)
-    if not invalid:
-        return CitationValidation(answer=answer, refused=False, invalid_citations=())
-
     has_valid = any(1 <= i <= num_sources for i in indices)
+
     if not has_valid:
+        # No grounding the answer can stand on: every citation (if any) was
+        # fabricated, or there was none at all. Either way, refuse.
         return CitationValidation(
-            answer=refusal, refused=True, invalid_citations=invalid
+            answer=refusal,
+            refused=True,
+            invalid_citations=invalid,
+            uncited=not indices,
         )
 
-    cleaned = _strip_invalid(answer, num_sources)
+    cleaned = _strip_invalid(answer, num_sources) if invalid else answer
     return CitationValidation(answer=cleaned, refused=False, invalid_citations=invalid)
 
 

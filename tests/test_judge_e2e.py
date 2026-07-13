@@ -143,6 +143,8 @@ def test_run_e2e_eval_aggregates_scores() -> None:
     assert metrics.mean_correctness == pytest.approx(1.0)
     assert metrics.refusal_rate == 0.0
     assert results[0].answer.startswith("La sede")
+    assert results[0].cited  # answer cited [1]
+    assert metrics.uncited_answer_rate == 0.0
 
 
 def test_run_e2e_eval_detects_refusal() -> None:
@@ -159,3 +161,31 @@ def test_run_e2e_eval_detects_refusal() -> None:
     provider = _RoutingProvider(answer=REFUSAL, faithfulness=1.0, correctness=0.0)
     metrics, _ = run_e2e_eval(_StubRetriever(["c1"]), lookup, examples, provider, k=1)
     assert metrics.refusal_rate == 1.0
+    # No answered questions, so the false-positive rate is vacuously zero.
+    assert metrics.uncited_answer_rate == 0.0
+
+
+def test_run_e2e_eval_flags_uncited_answer() -> None:
+    """A non-refused answer without a valid citation drives the false-positive rate.
+
+    This is the cite-or-refuse guardrail's false-positive surface on legitimate
+    traffic: an answered question whose answer would be converted to a refusal.
+    """
+    lookup = {"c1": _CONTEXTS[0]}
+    examples = [
+        EvalExample(
+            example_id="e1",
+            question="¿Dónde está la sede?",
+            relevant_chunk_ids=("c1",),
+            answer="En Bilbao.",
+        ),
+    ]
+    provider = _RoutingProvider(
+        answer="La sede está en Bilbao.", faithfulness=1.0, correctness=1.0
+    )
+    metrics, results = run_e2e_eval(
+        _StubRetriever(["c1"]), lookup, examples, provider, k=1
+    )
+    assert not results[0].refused
+    assert not results[0].cited
+    assert metrics.uncited_answer_rate == 1.0

@@ -43,7 +43,7 @@ set over the **2024 iteration corpus** (2,225 chunks) used to develop the ablati
 | **+ Cross-encoder rerank** | **1.000** | **0.888** | **0.913** |
 
 End-to-end answer quality (cite-or-refuse generation, scored by an LLM-as-judge):
-**faithfulness 0.990 · correctness 0.895 · refusal rate 0.050**. Full methodology, per-stage
+**faithfulness 0.980 · correctness 0.905 · refusal rate 0.050**. Full methodology, per-stage
 tables, and reproduction commands in [Evaluation](#evaluation-phase-2).
 
 > **Production corpus.** The deployed corpus has since been widened to **2015–present**
@@ -102,7 +102,7 @@ optimization is a drop-in implementation rather than a rewrite:
 | Retrieval | `Searcher` (`eval/retriever.py`) | in-memory dense E5 + BM25, RRF fusion | **Qdrant** dense leg — built, opt-in via `QDRANT_URL` |
 | Query encoding | `Embedder` (`eval/retriever.py`) | off-the-shelf `multilingual-e5-small` | fine-tuned E5, ONNX int8 |
 | Reranking | `Reranker` (`eval/rerank.py`) | sentence-transformers cross-encoder | ONNX int8 cross-encoder |
-| Generation | `LLMProvider` (`llm/base.py`) | OpenRouter → Groq → Gemini fallback chain | any OpenAI-compatible provider |
+| Generation | `LLMProvider` (`llm/base.py`) | OpenRouter → Groq fallback chain | any OpenAI-compatible provider |
 | Observability | `Tracer` (`service/tracing.py`) | no-op by default; **Langfuse per-stage spans** when `LANGFUSE_*` is set | hosted dashboards, eval scoring |
 
 `build_engine` (`service/app.py`) wires the concrete implementations together;
@@ -142,8 +142,8 @@ python scripts/push_corpus_to_hub.py \
 - [x] **Phase 0** — Scaffolding: tooling, CI, strict typing
 - [x] **Phase 1** — BOE ingestion pipeline → corpus dataset on HF Hub
 - [x] **Phase 2** — Eval harness: retrieval metrics + golden set + baseline, plus a
-  provider-agnostic LLM layer (Gemini/Groq) and an LLM-as-judge end-to-end baseline
-  (faithfulness 0.990, correctness 0.895)
+  provider-agnostic LLM layer (OpenRouter/Groq) and an LLM-as-judge end-to-end baseline
+  (faithfulness 0.980, correctness 0.905)
 - [x] **Phase 3** — Retrieval engineering: hybrid BM25+dense (RRF), cross-encoder reranking
   (recall 0.900→1.000), and a chunking ablation validating article-level chunks
 - [ ] **Phase 4** — Embedding model fine-tune → published on HF Hub
@@ -190,17 +190,18 @@ variance so smaller real gains are detectable.
 
 ```bash
 $env:OPENROUTER_API_KEY = "..."   # preferred: ~1000 free calls/day on `:free` models
-# Optional: a comma-separated fallback chain (OpenRouter routes around a busy model):
-$env:OPENROUTER_MODEL = "qwen/qwen3-next-80b-a3b-instruct:free,openai/gpt-oss-120b:free"
+# Optional: a comma-separated fallback chain (OpenRouter routes around a busy model);
+# the default ends in `openrouter/free`, OpenRouter's auto-router over live free models:
+$env:OPENROUTER_MODEL = "google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/free"
 python scripts/generate_evalset.py --corpus data/corpus/boe-2024.parquet \
     --out eval_data/generated_evalset.jsonl --limit 150
 ```
 
-Any one of `OPENROUTER_API_KEY`, `GROQ_API_KEY`, or `GEMINI_API_KEY` works (tried in that
-order; whichever has a key leads, and the chain falls through on rate limits). The generator
-survives free-tier limits: it waits out cool-downs and retries, and always saves what it has
-collected. `OPENROUTER_MODEL`/`GROQ_MODEL`/`GEMINI_MODEL` select the model; `--no-validate`
-halves token usage by skipping the faithfulness filter.
+Either of `OPENROUTER_API_KEY` or `GROQ_API_KEY` works (tried in that order; whichever has a
+key leads, and the chain falls through on rate limits). The generator survives free-tier
+limits: it waits out cool-downs and retries, and always saves what it has collected.
+`OPENROUTER_MODEL`/`GROQ_MODEL` select the model; `--no-validate` halves token usage by
+skipping the faithfulness filter.
 
 **Baseline** — `intfloat/multilingual-e5-small`, dense-only retrieval, 2024 corpus
 (2,225 chunks, 20 questions), the "before" picture every later change is measured against:
@@ -330,7 +331,7 @@ python scripts/run_chunking_ablation.py  --corpus data/corpus/boe-2015-present.p
 
 ### End-to-end (answer quality)
 
-A provider-agnostic LLM layer (`src/boe_rag/llm/`, Gemini + Groq with a fallback chain
+A provider-agnostic LLM layer (`src/boe_rag/llm/`, OpenRouter + Groq with a fallback chain
 that trips a circuit breaker on a rate-limited provider) powers both a baseline grounded
 answerer (cite-or-refuse prompting) and an **LLM-as-judge** that scores each generated
 answer for **faithfulness** (grounded in the retrieved passages?) and **correctness**
@@ -341,14 +342,14 @@ golden set:
 
 | Mean faithfulness | Mean correctness | Refusal rate |
 |---|---|---|
-| 0.990 | 0.895 | 0.050 |
+| 0.980 | 0.905 | 0.050 |
 
 Near-perfect faithfulness confirms the cite-or-refuse prompt rarely hallucinates; correctness
 is the headroom that retrieval and generation work will target. Full report:
 [`reports/e2e_baseline.md`](reports/e2e_baseline.md). Reproduce it once an API key is set:
 
 ```bash
-$env:GEMINI_API_KEY = "..."   # and/or $env:GROQ_API_KEY = "..."
+$env:OPENROUTER_API_KEY = "..."   # and/or $env:GROQ_API_KEY = "..."
 python scripts/run_e2e_eval.py --corpus data/corpus/boe-2024.parquet \
     --out reports/e2e_baseline
 ```
@@ -367,27 +368,32 @@ also hardened to treat passages and the question as *data, never instructions*.
 The suite earns its keep by finding real weaknesses and then proving the fixes. The prompt-only
 baseline **fabricated citations** when asked (e.g. `[99]` for a source never retrieved) and, on
 one phrasing, **leaked the system-prompt canary** — caught 0% and 75% of the time respectively.
-Two deterministic post-hoc guardrails close them: **citation validation**
-(`src/boe_rag/service/citation.py`) strips `[n]` markers pointing past the retrieved passages and
-refuses on entirely-fabricated grounding; **canary containment** (`src/boe_rag/service/safety.py`)
-refuses any answer that leaks the canary. Same harness, prompt-only baseline vs. with guardrails:
+Three deterministic post-hoc guardrails close them, all inside `RagEngine.answer`: a
+**cite-or-refuse invariant** (`src/boe_rag/service/citation.py`) strips `[n]` markers pointing past
+the retrieved passages and refuses any served answer left without a valid citation — covering both
+fabricated-only grounding and an *uncited* injected echo; **canary containment**
+(`src/boe_rag/service/safety.py`) refuses any answer that leaks the canary. Same harness,
+prompt-only baseline vs. with guardrails:
 
 | Attack category | Baseline | With guardrails |
 |---|---|---|
 | out-of-corpus hallucination | 100% | 100% |
-| instruction override | 75% | 67% |
+| instruction override | 75% | **100%** |
 | system-prompt exfiltration | 75% | **100%** |
 | **citation spoofing** | **0%** | **100%** |
-| **Overall** | **64% (9/14)** | **91% (20/22)** |
+| **Overall** | **64% (9/14)** | **100% (23/23)** |
 
-The remaining gap is instruction-override *echo* (2 cases) — there's no fixed token to match
-deterministically, so it's tracked honestly rather than papered over. Full threat model,
+Extending the invariant to drop *uncited* answers closed the instruction-override echo (67% →
+**100%**) with **zero** e2e false positives — no legitimate answer is wrongly refused
+(`uncited_answer_rate` 0.000 over the 20-question gold set). A payload echoed *alongside* a
+genuine cited answer would still pass, so robust prompt-injection defense stays an open problem —
+tracked honestly rather than papered over. Full threat model,
 methodology, and the find→fix loops: [`docs/SECURITY.md`](docs/SECURITY.md);
 latest report: [`reports/security_eval.md`](reports/security_eval.md). Reproduce it once an API
 key is set:
 
 ```bash
-$env:OPENROUTER_API_KEY = "..."   # or GROQ_API_KEY / GEMINI_API_KEY
+$env:OPENROUTER_API_KEY = "..."   # or GROQ_API_KEY
 python scripts/run_security_eval.py --corpus data/corpus/boe-2024.parquet \
     --out reports/security_eval
 ```
@@ -406,7 +412,7 @@ fake engine (no models or API keys in CI). Endpoints:
 
 ```bash
 pip install -e ".[api,ml]"             # service + embedding/rerank models
-$env:OPENROUTER_API_KEY = "..."        # at least one LLM key for /ask (or GROQ/GEMINI)
+$env:OPENROUTER_API_KEY = "..."        # at least one LLM key for /ask (or GROQ_API_KEY)
 uvicorn boe_rag.service.app:app --port 8000
 # → http://localhost:8000/docs  (interactive OpenAPI UI)
 ```
@@ -432,7 +438,7 @@ on the live UI. Two views:
 ```bash
 # Terminal 1 — the API (CORS open for the dev server origin):
 pip install -e ".[api,ml]"
-$env:OPENROUTER_API_KEY = "..."                 # or GROQ_API_KEY / GEMINI_API_KEY
+$env:OPENROUTER_API_KEY = "..."                 # or GROQ_API_KEY
 $env:BOE_CORS_ORIGINS = "http://localhost:5173"
 uvicorn boe_rag.service.app:app --port 8000
 # → http://localhost:8000/docs    (OpenAPI)   ·   GET / → redirects to BOE_FRONTEND_URL
@@ -466,8 +472,8 @@ stale, so a mismatched file can never serve wrong results). Each **version tag**
 [`.github/workflows/deploy-space.yml`](.github/workflows/deploy-space.yml), which swaps
 in the Space card ([`deploy/space/README.md`](deploy/space/README.md)) as the Space README
 and force-pushes to the Space, which then rebuilds the image — so every deployment is a
-tagged release. The only runtime secret is an LLM key — `OPENROUTER_API_KEY` (preferred),
-`GROQ_API_KEY`, or `GEMINI_API_KEY` — set in the Space settings.
+tagged release. The only runtime secret is an LLM key — `OPENROUTER_API_KEY` (preferred)
+or `GROQ_API_KEY` — set in the Space settings.
 
 ```bash
 # Build and run the production image locally (mirrors the Space):

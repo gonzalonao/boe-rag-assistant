@@ -2,8 +2,8 @@
 
 A minimal chat-completion contract so the rest of the system (baseline answer
 generation, the LLM-as-judge) never depends on a specific vendor. Concrete
-providers (Gemini, Groq) implement :class:`LLMProvider`; a fallback wrapper can
-chain them to ride out free-tier rate limits.
+providers (OpenRouter, Groq) implement :class:`LLMProvider`; a fallback wrapper
+can chain them to ride out free-tier rate limits.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ class LLMProvider(Protocol):
 
     @property
     def name(self) -> str:
-        """Stable identifier, e.g. ``gemini:gemini-2.0-flash``."""
+        """Stable identifier, e.g. ``groq:llama-3.3-70b-versatile``."""
         ...
 
     def complete(

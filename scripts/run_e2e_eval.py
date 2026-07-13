@@ -1,8 +1,7 @@
 """Run the end-to-end RAG evaluation (retrieve → generate → judge).
 
 Requires the ``ml`` extra (``pip install -e .[ml]``) and at least one LLM API
-key in the environment (``GEMINI_API_KEY``/``GOOGLE_API_KEY`` and/or
-``GROQ_API_KEY``).
+key in the environment (``OPENROUTER_API_KEY`` and/or ``GROQ_API_KEY``).
 
 Example:
     python scripts/run_e2e_eval.py --corpus data/corpus/boe-2024.parquet \
@@ -69,16 +68,21 @@ def _render_report(
         f"| Mean faithfulness | {metrics.mean_faithfulness:.3f} |",
         f"| Mean correctness | {metrics.mean_correctness:.3f} |",
         f"| Refusal rate | {metrics.refusal_rate:.3f} |",
+        f"| Uncited-answer rate | {metrics.uncited_answer_rate:.3f} |",
+        "",
+        "Uncited-answer rate is the cite-or-refuse guardrail's false-positive surface:",
+        "the share of *answered* questions whose answer carried no valid citation and",
+        "would therefore be converted to a refusal at serving time.",
         "",
         "## Per-question",
         "",
-        "| Example | Faithful | Correct | Refused |",
-        "|---|---|---|---|",
+        "| Example | Faithful | Correct | Refused | Cited |",
+        "|---|---|---|---|---|",
     ]
     for r in results:
         lines.append(
             f"| {r.example_id} | {r.faithfulness:.2f} | {r.correctness:.2f} | "
-            f"{'yes' if r.refused else 'no'} |"
+            f"{'yes' if r.refused else 'no'} | {'yes' if r.cited else 'no'} |"
         )
     lines.append("")
     return "\n".join(lines)
@@ -118,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     providers = build_available_providers()
     if not providers:
         logger.error(
-            "No LLM provider configured. Set GEMINI_API_KEY/GOOGLE_API_KEY "
+            "No LLM provider configured. Set OPENROUTER_API_KEY (recommended) "
             "and/or GROQ_API_KEY."
         )
         return 1

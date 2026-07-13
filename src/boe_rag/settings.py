@@ -21,7 +21,7 @@ import logging
 import os
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -63,8 +63,6 @@ class Settings(BaseSettings):
         openrouter_model: OpenRouter model override (``OPENROUTER_MODEL``).
         groq_api_key: Groq credential (``GROQ_API_KEY``).
         groq_model: Groq model override (``GROQ_MODEL``).
-        gemini_api_key: Gemini credential (``GEMINI_API_KEY`` or ``GOOGLE_API_KEY``).
-        gemini_model: Gemini model override (``GEMINI_MODEL``).
         langfuse_public_key: Langfuse public key (``LANGFUSE_PUBLIC_KEY``).
         langfuse_secret_key: Langfuse secret key (``LANGFUSE_SECRET_KEY``).
         langfuse_host: Langfuse host override (``LANGFUSE_HOST``).
@@ -101,11 +99,6 @@ class Settings(BaseSettings):
     )
     groq_api_key: str | None = Field(default=None, validation_alias="GROQ_API_KEY")
     groq_model: str | None = Field(default=None, validation_alias="GROQ_MODEL")
-    gemini_api_key: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
-    )
-    gemini_model: str | None = Field(default=None, validation_alias="GEMINI_MODEL")
 
     langfuse_public_key: str | None = Field(
         default=None, validation_alias="LANGFUSE_PUBLIC_KEY"
@@ -152,8 +145,6 @@ class Settings(BaseSettings):
             "OPENROUTER_MODEL": self.openrouter_model,
             "GROQ_API_KEY": self.groq_api_key,
             "GROQ_MODEL": self.groq_model,
-            "GEMINI_API_KEY": self.gemini_api_key,
-            "GEMINI_MODEL": self.gemini_model,
             "LANGFUSE_PUBLIC_KEY": self.langfuse_public_key,
             "LANGFUSE_SECRET_KEY": self.langfuse_secret_key,
             "LANGFUSE_HOST": self.langfuse_host,

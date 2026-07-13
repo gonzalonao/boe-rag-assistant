@@ -158,21 +158,24 @@ class RagEngine:
                 generation.update(output=text)
             # Deterministic output guardrails the prompt alone can't guarantee:
             # (1) a leaked system-prompt canary means the answer is compromised —
-            # refuse outright; (2) otherwise strip any [n] citing past the retrieved
-            # passages and refuse if the grounding was entirely fabricated.
+            # refuse outright; (2) otherwise enforce cite-or-refuse — strip any [n]
+            # citing past the retrieved passages and refuse any answer left without a
+            # valid citation (fabricated-only grounding, or an uncited injected echo).
             canary = screen_canary(text, SYSTEM_PROMPT_CANARY, refusal=REFUSAL)
             if canary.leaked:
-                text, refused, stripped = canary.answer, True, 0
+                text, refused, stripped, uncited = canary.answer, True, 0, False
             else:
                 validation = validate_citations(text, len(sources), refusal=REFUSAL)
                 text = validation.answer
-                refused = validation.refused or text.strip().startswith(REFUSAL[:20])
+                refused = validation.refused
                 stripped = len(validation.invalid_citations)
+                uncited = validation.uncited
             root.update(
                 metadata={
                     "refused": refused,
                     "sources": len(sources),
                     "stripped_citations": stripped,
+                    "uncited_refusal": uncited,
                     "canary_leaked": canary.leaked,
                 }
             )

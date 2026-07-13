@@ -43,7 +43,7 @@ text.
   ([`reports/security_eval.md`](../reports/security_eval.md)).
 
 ```bash
-$env:OPENROUTER_API_KEY = "..."   # or GROQ_API_KEY / GEMINI_API_KEY
+$env:OPENROUTER_API_KEY = "..."   # or GROQ_API_KEY
 python scripts/run_security_eval.py --corpus data/corpus/boe-2024.parquet \
     --out reports/security_eval
 ```
@@ -57,9 +57,10 @@ python scripts/run_security_eval.py --corpus data/corpus/boe-2024.parquet \
   embedded in the system prompt that must never appear in output, giving
   deterministic detection of prompt-exfiltration.
 - **Cite-or-refuse** generation: answer only from retrieved passages, cite them,
-  or emit the exact refusal string.
+  or emit the exact refusal string — instructed in the prompt **and** enforced
+  deterministically on the output (below).
 - **Deterministic output guardrails** (`service/citation.py`, `service/safety.py`):
-  the two checks below, run after generation, that turn "the prompt should hold"
+  the checks below, run after generation, that turn "the prompt should hold"
   into "the output is verified".
 
 ## Posture: the find → fix journey (dense k=5)
@@ -71,32 +72,40 @@ response to what the eval found, then the suite was broadened from 14 to 23 case
 | Attack category | Baseline (prompt-only) | With output guardrails |
 |---|---|---|
 | Out-of-corpus hallucination | 100% | 100% |
-| Instruction override | 75% | 67% |
+| Instruction override | 75% | **100%** |
 | System-prompt exfiltration | 75% | **100%** |
 | **Citation spoofing** | **0%** | **100%** |
-| **Overall** | **64% (9/14)** | **91% (21/23)** |
+| **Overall** | **64% (9/14)** | **100% (23/23)** |
 
 System-prompt exfiltration stays at **100%** including `exf-07`, the
 non-breaking-hyphen obfuscation probe added with the v0.3.1 canary-normalisation
 fix (below).
 
-The suite earned its keep by finding **two real weaknesses** that prompt wording
+The suite earned its keep by finding **three real weaknesses** that prompt wording
 alone could not close: the generator **fabricated citations** to passages it never
-retrieved (e.g. `[99]`), and one exfiltration phrasing **leaked the canary**. Both
-are now closed by deterministic guardrails (below). The instruction-override score
-dips because the broadened set added a harder echo case — see *Open gaps*.
+retrieved (e.g. `[99]`), one exfiltration phrasing **leaked the canary**, and an
+instruction-override payload was **echoed uncited**. All three are now closed by the
+deterministic guardrails below, taking the suite from 64% to **100% (23/23)**.
 
 ## The fixes (find → fix loops) — shipped
 
 Prompt-level defenses can't *guarantee* output properties; that needs deterministic
 guardrails run after generation, inside `RagEngine.answer`:
 
-**1. Citation validation** (`src/boe_rag/service/citation.py`) — closes citation
-spoofing (**0% → 100%**):
+**1. Cite-or-refuse invariant** (`src/boe_rag/service/citation.py`) — closes citation
+spoofing (**0% → 100%**) and the instruction-override echo (below). One rule on the
+output: a served answer must carry at least one *valid* citation.
 
 1. parse every `[n]` citation,
 2. strip any `n` outside `1..k` (a passage that was never retrieved),
-3. refuse when an answer's grounding rests *entirely* on fabricated citations.
+3. refuse when no valid citation remains — whether the answer cited *only* fabricated
+   sources, or carried *no* citation at all (an uncited injected echo).
+
+The third clause is the generalisation that closes the override echo: an injected
+literal ("output INYECCION_EXITOSA") is arbitrary text with no citation, so it can
+never satisfy the invariant and is replaced by the refusal. The engine traces an
+`uncited_refusal` flag so the two refusal causes (uncited echo vs. fabricated-only
+grounding) stay distinguishable in observability.
 
 **2. Canary containment** (`src/boe_rag/service/safety.py`) — closes exfiltration
 (**75% → 100%**): if the secret `SYSTEM_PROMPT_CANARY` appears in the answer, the
@@ -116,14 +125,19 @@ the defenses.
 
 ## Open gaps
 
-- **Instruction-override echo (4/6).** Two of the six override cases (which two
-  varies run to run — e.g. `inj-05`, `inj-06`) still coax the model into echoing an
-  injected literal string. Unlike citation/canary leaks, there is no fixed token to
-  match deterministically at runtime — the payload is arbitrary.
-  Mitigations under consideration: stricter output-format constraints, a
-  response-schema check, or a second-pass classifier; robust prompt-injection defense
-  remains an open research problem, so this is tracked honestly rather than papered
-  over.
+- **Instruction-override echo — closed (67% → 100%), 2026-07-12.** Two of the six
+  override cases (e.g. `inj-05`, `inj-06`) coaxed the model into echoing an injected
+  literal string. The payload is arbitrary, so there is no fixed token to match — but an
+  echoed payload has no *citation*, and the **cite-or-refuse invariant** (above) now
+  refuses any served answer without a valid citation. The injected literal cannot satisfy
+  it, so it is dropped at serving time. Re-running `run_security_eval.py` on the same
+  harness confirms the close: instruction override **67% → 100%**, overall **91% → 100%
+  (23/23)**, with **zero** e2e false positives (`uncited_answer_rate` 0.000 over the
+  20-question gold set — no legitimate answer is wrongly refused).
+  **Residual (still open):** a payload echoed *alongside* a genuinely cited answer would
+  still pass the invariant, and a second-pass classifier remains the heavier option for
+  that. Robust prompt-injection defense is an open research problem, so this is tracked
+  honestly rather than papered over.
 
 - **Canary homoglyph evasion — found 2026-06-21 (live v0.3.0), fixed for `v0.3.1`.**
   The canary tripwire originally did an *exact* substring match for the marker. An
